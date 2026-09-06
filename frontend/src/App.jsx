@@ -42,10 +42,10 @@ export default function App() {
     is_held: false,
     quantity: 0
   });
-
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://smart-stock-watchlist.onrender.com";
   const fetchWatchlists = async () => {
     try {
-      const res = await fetch("http://localhost:8000/api/watchlists");
+      const res = await fetch("${API_BASE}/api/watchlists");
       if (!res.ok) throw new Error("Failed to load watchlists");
       const list = await res.json();
       setWatchlists(list);
@@ -66,7 +66,7 @@ export default function App() {
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
-      const res = await fetch(`http://localhost:8000/api/dashboard?watchlist_id=${activeWatchlistId}`, {
+      const res = await fetch(`${API_BASE}/api/dashboard?watchlist_id=${activeWatchlistId}`, {
         signal: controller.signal
       });
       clearTimeout(timeoutId);
@@ -127,7 +127,7 @@ export default function App() {
     setIsSearching(true);
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`http://localhost:8000/api/stocks/search?query=${encodeURIComponent(val.trim())}`);
+        const res = await fetch(`${API_BASE}/api/stocks/search?query=${encodeURIComponent(val.trim())}`);
         const data = await res.json();
         setSearchResults(data);
       } catch (err) {
@@ -156,7 +156,7 @@ export default function App() {
     e.preventDefault();
     if (!newWlName.trim()) return;
     try {
-      const res = await fetch("http://localhost:8000/api/watchlists", {
+      const res = await fetch("${API_BASE}/api/watchlists", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newWlName.trim() })
@@ -177,7 +177,7 @@ export default function App() {
     if (!trimmed) return;
 
     try {
-      const res = await fetch(`http://localhost:8000/api/watchlists/${activeWatchlistId}/rename`, {
+      const res = await fetch(`${API_BASE}/api/watchlists/${activeWatchlistId}/rename`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: trimmed })
@@ -201,7 +201,7 @@ export default function App() {
     }
     if (!window.confirm("Delete this watchlist?")) return;
     try {
-      await fetch(`http://localhost:8000/api/watchlists/${id}`, { method: "DELETE" });
+      await fetch(`${API_BASE}/api/watchlists/${id}`, { method: "DELETE" });
       const filtered = watchlists.filter((w) => w.id !== id);
       setWatchlists(filtered);
       setActiveWatchlistId(filtered[0].id);
@@ -215,7 +215,7 @@ export default function App() {
     e.preventDefault();
     if (!formData.symbol || !formData.ltp) return;
     try {
-      await fetch("http://localhost:8000/api/stocks/add", {
+      await fetch("${API_BASE}/api/stocks/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -248,7 +248,7 @@ export default function App() {
   const handleRemoveStock = async (symbol) => {
     if (!window.confirm(`Untrack ${symbol} from this watchlist?`)) return;
     try {
-      await fetch(`http://localhost:8000/api/watchlists/${activeWatchlistId}/stocks/${symbol}`, { method: "DELETE" });
+      await fetch(`${API_BASE}/api/watchlists/${activeWatchlistId}/stocks/${symbol}`, { method: "DELETE" });
       fetchDashboard(true);
     } catch (err) {
       console.error(err);
@@ -259,11 +259,11 @@ export default function App() {
     setIsSyncingAction(true);
     try {
       if (!isUndoState) {
-        const res = await fetch("http://localhost:8000/api/snapshot/ack", { method: "POST" });
+        const res = await fetch("${API_BASE}/api/snapshot/ack", { method: "POST" });
         const data = await res.json();
         setIsUndoState(data.can_undo);
       } else {
-        await fetch("http://localhost:8000/api/snapshot/undo", { method: "POST" });
+        await fetch("${API_BASE}/api/snapshot/undo", { method: "POST" });
         setIsUndoState(false);
       }
       await fetchDashboard(true);
