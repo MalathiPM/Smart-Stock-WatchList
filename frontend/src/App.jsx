@@ -375,13 +375,13 @@ export default function App() {
         </div>
 
         {/* Watchlist Tabs Strip */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between border-t border-[#1C2028] bg-[#0E1015]/90 py-2.5 relative z-30 overflow-x-auto">
-          <div className="flex items-center gap-2 min-w-max">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between border-t border-[#1C2028] bg-[#0E1015]/90 py-2.5 relative z-30">
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar w-full sm:w-auto">
             {watchlists.map((wl) => {
               const isActive = wl.id === activeWatchlistId;
 
               return (
-                <div key={wl.id} className="relative flex items-center" ref={isActive ? menuRef : null}>
+                <div key={wl.id} className="relative inline-flex items-center flex-shrink-0" ref={isActive ? menuRef : null}>
                   <button
                     onClick={() => setActiveWatchlistId(wl.id)}
                     className={`text-xs px-3 sm:px-3.5 py-1.5 rounded-xl font-semibold transition whitespace-nowrap flex items-center gap-2 ${
@@ -405,7 +405,7 @@ export default function App() {
                         e.stopPropagation();
                         setActiveMenuId((prev) => (prev === wl.id ? null : wl.id));
                       }}
-                      className="p-1.5 hover:text-white text-slate-400 rounded-lg hover:bg-[#232731] transition -ml-1"
+                      className="p-1.5 hover:text-white text-slate-400 rounded-lg hover:bg-[#232731] transition -ml-1 flex-shrink-0"
                       title="Watchlist Options"
                     >
                       <MoreVertical className="w-3.5 h-3.5 pointer-events-none" />
@@ -414,7 +414,10 @@ export default function App() {
 
                   {/* Menu Dropdown */}
                   {activeMenuId === wl.id && (
-                    <div className="absolute top-full left-0 mt-2 bg-[#1C2028] border border-[#2B313E] rounded-xl shadow-2xl py-1.5 z-50 w-36">
+                    <div 
+                      className="absolute top-full left-0 mt-2 bg-[#1C2028] border border-[#2D3340] rounded-xl shadow-2xl py-1.5 w-36 z-[9999]"
+                      style={{ filter: "drop-shadow(0 10px 15px rgba(0,0,0,0.5))" }}
+                    >
                       <button
                         type="button"
                         onClick={() => {
@@ -422,16 +425,16 @@ export default function App() {
                           setIsRenameOpen(true);
                           setActiveMenuId(null);
                         }}
-                        className="w-full text-left px-3 py-2 text-xs text-slate-200 hover:bg-[#252B37] hover:text-[#00D09C] flex items-center gap-2 transition"
+                        className="w-full text-left px-3.5 py-2 text-xs text-slate-200 hover:bg-[#252B37] hover:text-[#00D09C] flex items-center gap-2 transition font-medium"
                       >
-                        <Edit2 className="w-3.5 h-3.5" /> Rename
+                        <Edit2 className="w-3.5 h-3.5 text-slate-400" /> Rename
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDeleteWatchlist(wl.id)}
-                        className="w-full text-left px-3 py-2 text-xs text-[#EB5B56] hover:bg-[#252B37] flex items-center gap-2 transition"
+                        className="w-full text-left px-3.5 py-2 text-xs text-[#EB5B56] hover:bg-[#252B37] flex items-center gap-2 transition font-medium border-t border-[#232731] mt-1 pt-2"
                       >
-                        <Trash2 className="w-3.5 h-3.5" /> Delete
+                        <Trash2 className="w-3.5 h-3.5 text-[#EB5B56]" /> Delete
                       </button>
                     </div>
                   )}
@@ -444,7 +447,7 @@ export default function App() {
                 setNewWlName("");
                 setIsCreateWlOpen(true);
               }}
-              className="text-xs px-3 sm:px-3.5 py-1.5 rounded-xl text-slate-400 hover:text-[#00D09C] hover:bg-[#181B20] border border-dashed border-[#2C313E] transition flex items-center gap-1.5 whitespace-nowrap"
+              className="text-xs px-3 sm:px-3.5 py-1.5 rounded-xl text-slate-400 hover:text-[#00D09C] hover:bg-[#181B20] border border-dashed border-[#2C313E] transition flex items-center gap-1.5 whitespace-nowrap flex-shrink-0"
             >
               <Plus className="w-3.5 h-3.5" /> New Watchlist
             </button>
