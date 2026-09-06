@@ -104,7 +104,6 @@ export default function App() {
     return () => clearInterval(interval);
   }, [activeWatchlistId]);
 
-  // Click outside listener that does NOT close menus during clicks inside them
   useEffect(() => {
     function handleClickOutside(e) {
       if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
@@ -320,13 +319,13 @@ export default function App() {
     <div className="min-h-screen bg-[#0F1115] text-[#F3F4F6] font-sans antialiased selection:bg-[#00D09C]/20 selection:text-[#00D09C]">
       {/* Top Header */}
       <header className="sticky top-0 z-40 bg-[#12151B]/95 backdrop-blur-md border-b border-[#232731]">
-        <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 min-h-[4rem] py-2.5 flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#00D09C] to-[#25D7AA] flex items-center justify-center shadow-lg shadow-[#00D09C]/20">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#00D09C] to-[#25D7AA] flex items-center justify-center shadow-lg shadow-[#00D09C]/20 shrink-0">
               <Zap className="w-5 h-5 text-[#0F1115] fill-current" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-lg font-bold tracking-tight text-white">Groww<span className="text-[#00D09C]">Delta</span></span>
                 <span className="text-[10px] bg-[#1C212A] text-[#00D09C] font-semibold px-2 py-0.5 rounded-full border border-[#00D09C]/30">
                   ABSENCE INTELLIGENCE
@@ -335,33 +334,33 @@ export default function App() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
             <button
               onClick={handleToggleBaselineSnapshot}
               disabled={isSyncingAction}
-              className={`flex items-center gap-2 text-xs font-semibold px-4 py-2.5 rounded-xl border transition duration-200 active:scale-95 ${
+              className={`flex items-center gap-1.5 sm:gap-2 text-xs font-semibold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl border transition duration-200 active:scale-95 ${
                 isUndoState
                   ? "bg-[#252219] hover:bg-[#302B1F] text-[#FBBF24] border-[#F59E0B]/40 shadow-md shadow-[#F59E0B]/10"
                   : "bg-[#1C212A] hover:bg-[#252C37] text-slate-200 border-[#2D3340]"
               }`}
             >
               {isSyncingAction ? <RefreshCw className="w-4 h-4 animate-spin" /> : isUndoState ? <RotateCcw className="w-4 h-4 text-[#FBBF24]" /> : <CheckCircle2 className="w-4 h-4 text-[#00D09C]" />}
-              {isUndoState ? "Undo Baseline Reset" : "Mark All As Seen"}
+              <span>{isUndoState ? "Undo Reset" : "Mark All As Seen"}</span>
             </button>
 
             <button
               onClick={() => setIsAddStockOpen(true)}
-              className="flex items-center gap-2 text-xs font-bold bg-[#00D09C] hover:bg-[#00B98A] text-[#0F1115] px-4 py-2.5 rounded-xl shadow-lg shadow-[#00D09C]/25 transition duration-150 active:scale-95"
+              className="flex items-center gap-1.5 sm:gap-2 text-xs font-bold bg-[#00D09C] hover:bg-[#00B98A] text-[#0F1115] px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl shadow-lg shadow-[#00D09C]/25 transition duration-150 active:scale-95"
             >
               <Plus className="w-4 h-4 stroke-[2.5]" />
-              Add Stock
+              <span>Add Stock</span>
             </button>
           </div>
         </div>
 
         {/* Watchlist Tabs Strip */}
-        <div className="max-w-7xl mx-auto px-6 flex items-center justify-between border-t border-[#1C2028] bg-[#0E1015]/90 py-2.5 relative z-30">
-          <div className="flex items-center gap-2 overflow-visible">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between border-t border-[#1C2028] bg-[#0E1015]/90 py-2.5 relative z-30 overflow-x-auto">
+          <div className="flex items-center gap-2 min-w-max">
             {watchlists.map((wl) => {
               const isActive = wl.id === activeWatchlistId;
 
@@ -369,7 +368,7 @@ export default function App() {
                 <div key={wl.id} className="relative flex items-center" ref={isActive ? menuRef : null}>
                   <button
                     onClick={() => setActiveWatchlistId(wl.id)}
-                    className={`text-xs px-3.5 py-1.5 rounded-xl font-semibold transition whitespace-nowrap flex items-center gap-2 ${
+                    className={`text-xs px-3 sm:px-3.5 py-1.5 rounded-xl font-semibold transition whitespace-nowrap flex items-center gap-2 ${
                       isActive
                         ? "bg-[#00D09C]/15 text-[#00D09C] border border-[#00D09C]/30 shadow-sm"
                         : "bg-[#181B20] text-slate-400 hover:text-white border border-[#232731]"
@@ -425,7 +424,7 @@ export default function App() {
                 setNewWlName("");
                 setIsCreateWlOpen(true);
               }}
-              className="text-xs px-3.5 py-1.5 rounded-xl text-slate-400 hover:text-[#00D09C] hover:bg-[#181B20] border border-dashed border-[#2C313E] transition flex items-center gap-1.5"
+              className="text-xs px-3 sm:px-3.5 py-1.5 rounded-xl text-slate-400 hover:text-[#00D09C] hover:bg-[#181B20] border border-dashed border-[#2C313E] transition flex items-center gap-1.5 whitespace-nowrap"
             >
               <Plus className="w-3.5 h-3.5" /> New Watchlist
             </button>
@@ -434,10 +433,10 @@ export default function App() {
       </header>
 
       {/* Content Layout */}
-      <main className="max-w-7xl mx-auto px-6 py-8 space-y-9">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-9">
         {!dashboard ? (
           <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               {[...Array(4)].map((_, i) => (
                 <div key={i} className="h-32 bg-[#141820] border border-[#232731] rounded-2xl animate-pulse" />
               ))}
@@ -445,7 +444,7 @@ export default function App() {
             <div className="h-64 bg-[#141820] border border-[#232731] rounded-2xl animate-pulse" />
           </div>
         ) : allStocks.length === 0 ? (
-          <div className="text-center py-24 bg-[#141820] border border-dashed border-[#262B34] rounded-2xl">
+          <div className="text-center py-20 sm:py-24 px-4 bg-[#141820] border border-dashed border-[#262B34] rounded-2xl">
             <Eye className="w-12 h-12 text-slate-600 mx-auto mb-3" />
             <p className="text-slate-300 font-medium text-sm">
               "{activeWatchlist?.name}" has no tracked stocks.
@@ -462,14 +461,14 @@ export default function App() {
           <>
             {/* Top Summaries */}
             <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-[#181B20] border border-[#262B34] rounded-2xl p-5 flex flex-col justify-between hover:border-[#353C49] transition shadow-sm">
+              <div className="bg-[#181B20] border border-[#262B34] rounded-2xl p-4 sm:p-5 flex flex-col justify-between hover:border-[#353C49] transition shadow-sm">
                 <div>
                   <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
                     <span>Portfolio Absence Drift</span>
                     <Activity className="w-4 h-4 text-emerald-400" />
                   </div>
                   <div className="mt-3 flex items-baseline gap-2">
-                    <span className={`text-2xl font-bold font-mono tracking-tight ${totalHeldImpact >= 0 ? "text-[#00D09C]" : "text-[#EB5B56]"}`}>
+                    <span className={`text-xl sm:text-2xl font-bold font-mono tracking-tight ${totalHeldImpact >= 0 ? "text-[#00D09C]" : "text-[#EB5B56]"}`}>
                       {totalHeldImpact >= 0 ? "+" : "-"}₹{Math.abs(totalHeldImpact).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                     </span>
                     <span className="text-[11px] text-slate-400">P&L shift</span>
@@ -480,7 +479,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-[#181B20] border border-[#262B34] rounded-2xl p-5 flex flex-col justify-between hover:border-[#353C49] transition shadow-sm">
+              <div className="bg-[#181B20] border border-[#262B34] rounded-2xl p-4 sm:p-5 flex flex-col justify-between hover:border-[#353C49] transition shadow-sm">
                 <div>
                   <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
                     <span>Absence Delta Leader</span>
@@ -488,7 +487,7 @@ export default function App() {
                   </div>
                   <div className="mt-3 flex items-baseline justify-between">
                     <div>
-                      <span className="text-lg font-bold text-white font-mono">{bestPerformer?.symbol || "—"}</span>
+                      <span className="text-base sm:text-lg font-bold text-white font-mono">{bestPerformer?.symbol || "—"}</span>
                       <p className="text-[11px] text-slate-400 line-clamp-1">{bestPerformer?.name || "No assets"}</p>
                     </div>
                     <span className={`text-sm font-bold font-mono ${(bestPerformer?.delta_pct || 0) >= 0 ? "text-[#00D09C]" : "text-[#EB5B56]"}`}>
@@ -501,7 +500,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-[#181B20] border border-[#262B34] rounded-2xl p-5 flex flex-col justify-between hover:border-[#353C49] transition shadow-sm">
+              <div className="bg-[#181B20] border border-[#262B34] rounded-2xl p-4 sm:p-5 flex flex-col justify-between hover:border-[#353C49] transition shadow-sm">
                 <div>
                   <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
                     <span>Active Behavioral Flags</span>
@@ -509,17 +508,17 @@ export default function App() {
                   </div>
                   <div className="mt-3 flex items-center gap-3">
                     <div>
-                      <span className="text-xl font-bold font-mono text-emerald-400">{breakoutCount}</span>
+                      <span className="text-lg sm:text-xl font-bold font-mono text-emerald-400">{breakoutCount}</span>
                       <p className="text-[10px] text-slate-400 uppercase font-semibold">Breakout</p>
                     </div>
                     <div className="h-6 w-px bg-[#262B34]" />
                     <div>
-                      <span className="text-xl font-bold font-mono text-amber-400">{fadingCount}</span>
+                      <span className="text-lg sm:text-xl font-bold font-mono text-amber-400">{fadingCount}</span>
                       <p className="text-[10px] text-slate-400 uppercase font-semibold">Fading</p>
                     </div>
                     <div className="h-6 w-px bg-[#262B34]" />
                     <div>
-                      <span className="text-xl font-bold font-mono text-rose-400">{dragCount}</span>
+                      <span className="text-lg sm:text-xl font-bold font-mono text-rose-400">{dragCount}</span>
                       <p className="text-[10px] text-slate-400 uppercase font-semibold">Drag</p>
                     </div>
                   </div>
@@ -529,14 +528,14 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="bg-[#181B20] border border-[#262B34] rounded-2xl p-5 flex flex-col justify-between hover:border-[#353C49] transition shadow-sm">
+              <div className="bg-[#181B20] border border-[#262B34] rounded-2xl p-4 sm:p-5 flex flex-col justify-between hover:border-[#353C49] transition shadow-sm">
                 <div>
                   <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
                     <span>Watchlist Coverage</span>
                     <Layers className="w-4 h-4 text-purple-400" />
                   </div>
                   <div className="mt-3 flex items-baseline justify-between">
-                    <span className="text-2xl font-bold font-mono text-white">
+                    <span className="text-xl sm:text-2xl font-bold font-mono text-white">
                       {Object.keys(sectors).length}
                     </span>
                     <span className="text-xs text-slate-400 font-mono">
@@ -556,7 +555,7 @@ export default function App() {
               const narrative = getSectorNarrative(group);
 
               return (
-                <section key={sectorName} className="space-y-3 bg-[#13161C] p-5 rounded-2xl border border-[#202530]">
+                <section key={sectorName} className="space-y-3 bg-[#13161C] p-4 sm:p-5 rounded-2xl border border-[#202530]">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2">
                     <div className="flex items-center gap-3">
                       <h2 className="text-sm font-bold text-white uppercase tracking-wider">
@@ -597,7 +596,7 @@ export default function App() {
                       return (
                         <div
                           key={stock.symbol}
-                          className="bg-[#181B20] border border-[#262B34] hover:border-[#353C49] rounded-2xl p-5 relative group transition duration-150 flex flex-col justify-between shadow-sm hover:shadow-xl hover:shadow-black/20"
+                          className="bg-[#181B20] border border-[#262B34] hover:border-[#353C49] rounded-2xl p-4 sm:p-5 relative group transition duration-150 flex flex-col justify-between shadow-sm hover:shadow-xl hover:shadow-black/20"
                         >
                           <div>
                             <div className="flex justify-between items-start">
@@ -618,7 +617,7 @@ export default function App() {
                               </div>
                               <button
                                 onClick={() => handleRemoveStock(stock.symbol)}
-                                className="text-slate-600 hover:text-[#EB5B56] transition opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-[#262B34]"
+                                className="text-slate-600 hover:text-[#EB5B56] transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1 rounded-md hover:bg-[#262B34]"
                                 title="Untrack from this watchlist"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -626,7 +625,7 @@ export default function App() {
                             </div>
 
                             <div className="flex items-baseline justify-between mt-4">
-                              <span className="text-2xl font-bold font-mono tracking-tight text-white">
+                              <span className="text-xl sm:text-2xl font-bold font-mono tracking-tight text-white">
                                 ₹{Number(stock.ltp).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
                               </span>
                               <div className="flex items-center gap-1 font-mono text-xs font-bold">
@@ -775,11 +774,11 @@ export default function App() {
       {/* ADD STOCK MODAL */}
       {isAddStockOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#181B20] border border-[#2D3340] rounded-3xl w-full max-w-md p-6 relative shadow-2xl">
+          <div className="bg-[#181B20] border border-[#2D3340] rounded-3xl w-full max-w-md p-5 sm:p-6 relative shadow-2xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center pb-4 border-b border-[#262B34]">
               <div className="flex items-center gap-2">
                 <div className="w-2 h-2 rounded-full bg-[#00D09C]" />
-                <h3 className="font-bold text-base text-white">Add Stock to "{activeWatchlist?.name}"</h3>
+                <h3 className="font-bold text-sm sm:text-base text-white">Add Stock to "{activeWatchlist?.name}"</h3>
               </div>
               <button onClick={() => setIsAddStockOpen(false)} className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-[#232731]">
                 <X className="w-5 h-5" />
@@ -824,7 +823,7 @@ export default function App() {
             </div>
 
             <form onSubmit={handleFormSubmit} className="mt-4 space-y-3.5">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 text-[11px] mb-1">Symbol</label>
                   <input
@@ -858,7 +857,7 @@ export default function App() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-400 text-[11px] mb-1">Current LTP (₹)</label>
                   <input
