@@ -22,16 +22,26 @@ db = client[DB_NAME]
 
 app = FastAPI(title="DeltaWatch Backend")
 
+origins = [
+    "https://smart-stock-watchlist-ui.onrender.com",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:3000",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 @app.get("/healthz")
 def health_check():
     return {"status": "alive"}
+
 # ----------------- DATA MODELS -----------------
 class WatchlistCreate(BaseModel):
     name: str
@@ -132,7 +142,10 @@ def delete_watchlist(watchlist_id: str, user_id: str = "demo_user"):
 @app.get("/api/dashboard")
 def get_dashboard(watchlist_id: Optional[str] = None, user_id: str = "demo_user"):
     if watchlist_id and watchlist_id != "undefined":
-        active_wl = db.user_watchlists.find_one({"_id": ObjectId(watchlist_id), "user_id": user_id})
+        try:
+            active_wl = db.user_watchlists.find_one({"_id": ObjectId(watchlist_id), "user_id": user_id})
+        except Exception:
+            active_wl = get_or_create_default_watchlist(user_id)
     else:
         active_wl = get_or_create_default_watchlist(user_id)
 
