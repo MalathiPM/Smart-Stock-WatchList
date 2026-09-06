@@ -159,11 +159,12 @@ def delete_watchlist(watchlist_id: str, user_id: str = "demo_user"):
 # ----------------- DASHBOARD ROUTE -----------------
 
 @app.get("/api/dashboard")
-def get_dashboard(watchlist_id: Optional[str] = None, user_id: str = "demo_user"):
+def get_dashboard(watchlist_id: Optional[str] = None, user_id: str = "demo_user", _t: Optional[str] = None):
     cache_key = f"{user_id}:{watchlist_id}"
     now = time.time()
 
-    if cache_key in DASHBOARD_CACHE:
+    # Bypass cache if explicit cache-busting timestamp param is present
+    if not _t and cache_key in DASHBOARD_CACHE:
         cached_data, timestamp = DASHBOARD_CACHE[cache_key]
         if now - timestamp < CACHE_TTL:
             return cached_data
@@ -264,45 +265,45 @@ def remove_stock_from_watchlist(watchlist_id: str, symbol: str, user_id: str = "
 
 @app.post("/api/snapshot/ack")
 def mark_all_as_seen(user_id: str = "demo_user"):
+    DASHBOARD_CACHE.clear()
     current_doc = db.user_view_snapshots.find_one({"user_id": user_id}) or {}
     prev_prices = current_doc.get("prices", {})
 
     all_telemetry = list(db.global_telemetry_cache.find({}, {"_id": 0}))
     new_prices = {doc["symbol"]: doc["ltp"] for doc in all_telemetry if "ltp" in doc}
 
+    for wl in db.user_watchlists.find({"user_id": user_id}):
+        for sym in wl.get("symbols", []):
+            cached = db.global_telemetry_cache.find_one({"symbol": sym})
+            if cached and "ltp" in cached:
+                new_prices[sym] = cached["ltp"]
+
     db.user_view_snapshots.update_one(
         {"user_id": user_id},
         {"$set": {"prices": new_prices, "previous_prices": prev_prices}},
         upsert=True
     )
-    DASHBOARD_CACHE.clear()
-    return {"status": "success", "can_undo": bool(prev_prices)}
+    return {"status": "success", "can_undo": True}
 
 @app.post("/api/snapshot/undo")
 def undo_mark_seen(user_id: str = "demo_user"):
-    all_telemetry = list(db.global_telemetry_cache.find({}, {"_id": 0}))
-    prev_prices = {}
+    DASHBOARD_CACHE.clear()
+    current_doc = db.user_view_snapshots.find_one({"user_id": user_id}) or {}
+    prev_prices = current_doc.get("previous_prices", {})
 
-    for item in all_telemetry:
-        sym = item["symbol"].strip().upper()
-        ltp = float(item.get("ltp", 100.0))
-        if sym in ["TATAMOTORS", "RELIANCE"]:
-            prev_prices[sym] = round(ltp * 0.974, 2)
-        elif sym in ["TCS", "INFY"]:
-            prev_prices[sym] = round(ltp * 1.025, 2)
-        elif sym == "SUNPHARMA":
-            prev_prices[sym] = round(ltp * 0.982, 2)
-        elif sym == "BCPL":
-            prev_prices[sym] = round(ltp * 0.980, 2)
-        else:
+    if not prev_prices:
+        all_telemetry = list(db.global_telemetry_cache.find({}, {"_id": 0}))
+        prev_prices = {}
+        for item in all_telemetry:
+            sym = item["symbol"].strip().upper()
+            ltp = float(item.get("ltp", 100.0))
             prev_prices[sym] = round(ltp * 0.985, 2)
 
     db.user_view_snapshots.update_one(
         {"user_id": user_id},
         {"$set": {"prices": prev_prices}, "$unset": {"previous_prices": ""}}
     )
-    DASHBOARD_CACHE.clear()
-    return {"status": "success"}
+    return {"status": "success", "can_undo": False}
 
 @app.get("/api/stocks/search")
 def search_stocks(query: str = ""):

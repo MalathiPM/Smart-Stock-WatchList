@@ -72,9 +72,10 @@ export default function App() {
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
-      const res = await fetch(API_BASE + "/api/dashboard?watchlist_id=" + encodeURIComponent(activeWatchlistId), {
-        signal: controller.signal
-      });
+      const res = await fetch(
+        API_BASE + "/api/dashboard?watchlist_id=" + encodeURIComponent(activeWatchlistId) + "&_t=" + Date.now(),
+        { signal: controller.signal }
+      );
       clearTimeout(timeoutId);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
@@ -266,17 +267,21 @@ export default function App() {
   const handleToggleBaselineSnapshot = async () => {
     setIsSyncingAction(true);
     try {
-      if (!isUndoState) {
-        const res = await fetch(API_BASE + "/api/snapshot/ack", { method: "POST" });
-        const data = await res.json();
-        setIsUndoState(data.can_undo);
-      } else {
-        await fetch(API_BASE + "/api/snapshot/undo", { method: "POST" });
-        setIsUndoState(false);
+      const endpoint = !isUndoState ? "/api/snapshot/ack" : "/api/snapshot/undo";
+      const res = await fetch(API_BASE + endpoint, { method: "POST" });
+      const data = await res.json();
+      setIsUndoState(Boolean(data.can_undo));
+
+      // Force fresh dashboard sync with timestamp
+      const dashRes = await fetch(
+        API_BASE + "/api/dashboard?watchlist_id=" + encodeURIComponent(activeWatchlistId) + "&_t=" + Date.now()
+      );
+      if (dashRes.ok) {
+        const freshData = await dashRes.json();
+        setDashboard(freshData);
       }
-      await fetchDashboard(true);
     } catch (err) {
-      console.error(err);
+      console.error("Toggle error:", err);
     } finally {
       setIsSyncingAction(false);
     }
@@ -294,7 +299,6 @@ export default function App() {
   allStocks.forEach((stk) => {
     if (!bestPerformer || stk.delta_pct > bestPerformer.delta_pct) bestPerformer = stk;
     
-    // Evaluate behavioral indicators with dynamic baseline thresholds
     if (stk.badge === "BREAKOUT" || stk.delta_pct >= 1.5) breakoutCount += 1;
     else if (stk.badge === "MOMENTUM FADING" || (stk.delta_pct > 0 && stk.delta_pct < 0.6)) fadingCount += 1;
     else if (stk.badge === "CLUSTER DRAG" || stk.delta_pct <= -1.0) dragCount += 1;
@@ -346,18 +350,31 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
-            <button
-              onClick={handleToggleBaselineSnapshot}
-              disabled={isSyncingAction}
-              className={`flex items-center gap-1.5 sm:gap-2 text-xs font-semibold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl border transition duration-200 active:scale-95 ${
-                isUndoState
-                  ? "bg-[#252219] hover:bg-[#302B1F] text-[#FBBF24] border-[#F59E0B]/40 shadow-md shadow-[#F59E0B]/10"
-                  : "bg-[#1C212A] hover:bg-[#252C37] text-slate-200 border-[#2D3340]"
-              }`}
-            >
-              {isSyncingAction ? <RefreshCw className="w-4 h-4 animate-spin" /> : isUndoState ? <RotateCcw className="w-4 h-4 text-[#FBBF24]" /> : <CheckCircle2 className="w-4 h-4 text-[#00D09C]" />}
-              <span>{isUndoState ? "Undo Reset" : "Mark All As Seen"}</span>
-            </button>
+            {/* Tooltip Wrapper */}
+            <div className="relative group inline-block">
+              <button
+                onClick={handleToggleBaselineSnapshot}
+                disabled={isSyncingAction}
+                className={`flex items-center gap-1.5 sm:gap-2 text-xs font-semibold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl border transition duration-200 active:scale-95 ${
+                  isUndoState
+                    ? "bg-[#252219] hover:bg-[#302B1F] text-[#FBBF24] border-[#F59E0B]/40 shadow-md shadow-[#F59E0B]/10"
+                    : "bg-[#1C212A] hover:bg-[#252C37] text-slate-200 border-[#2D3340]"
+                }`}
+              >
+                {isSyncingAction ? (
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                ) : isUndoState ? (
+                  <RotateCcw className="w-4 h-4 text-[#FBBF24]" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4 text-[#00D09C]" />
+                )}
+                <span>{isUndoState ? "Undo Reset" : "Mark All As Seen"}</span>
+              </button>
+
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:flex items-center px-2.5 py-1 bg-[#1A1E26] text-slate-200 text-[11px] font-medium rounded-lg border border-[#2E3544] shadow-xl whitespace-nowrap pointer-events-none z-50">
+                {isUndoState ? "Restore prior prices" : "Reset drift to ₹0"}
+              </div>
+            </div>
 
             <button
               onClick={() => setIsAddStockOpen(true)}
