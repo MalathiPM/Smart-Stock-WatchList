@@ -293,23 +293,34 @@ export default function App() {
 
   allStocks.forEach((stk) => {
     if (!bestPerformer || stk.delta_pct > bestPerformer.delta_pct) bestPerformer = stk;
-    if (stk.badge === "BREAKOUT") breakoutCount += 1;
-    if (stk.badge === "MOMENTUM FADING") fadingCount += 1;
-    if (stk.badge === "CLUSTER DRAG") dragCount += 1;
+    
+    // Evaluate behavioral indicators with dynamic baseline thresholds
+    if (stk.badge === "BREAKOUT" || stk.delta_pct >= 1.5) breakoutCount += 1;
+    else if (stk.badge === "MOMENTUM FADING" || (stk.delta_pct > 0 && stk.delta_pct < 0.6)) fadingCount += 1;
+    else if (stk.badge === "CLUSTER DRAG" || stk.delta_pct <= -1.0) dragCount += 1;
+
     if (stk.is_held) {
       heldStockCount += 1;
       if (stk.pnl_impact) totalHeldImpact += stk.pnl_impact;
     }
   });
 
+  const getEffectiveBadge = (stock) => {
+    if (stock.badge) return stock.badge;
+    if (stock.delta_pct >= 1.5) return "BREAKOUT";
+    if (stock.delta_pct > 0 && stock.delta_pct < 0.6) return "MOMENTUM FADING";
+    if (stock.delta_pct <= -1.0) return "CLUSTER DRAG";
+    return null;
+  };
+
   const getSectorNarrative = (group) => {
     const avg = group.sector_delta_avg || 0;
     const count = group.stocks.length;
     const positiveCount = group.stocks.filter((s) => s.delta_pct > 0).length;
-    const breakoutStocks = group.stocks.filter((s) => s.badge === "BREAKOUT");
+    const breakoutStocks = group.stocks.filter((s) => getEffectiveBadge(s) === "BREAKOUT");
 
     if (breakoutStocks.length > 0) {
-      return { tone: "positive", text: `Active breakout detected in ${breakoutStocks.map((s) => s.symbol).join(", ")}. Institutional volume supporting move.` };
+      return { tone: "positive", text: `Active breakout detected in ${breakoutStocks.map((s) => s.symbol).join(", ")}. Volume supporting move.` };
     }
     if (avg <= -1.0) {
       return { tone: "negative", text: `Cluster drag warning: ${count - positiveCount} of ${count} stocks sliding below baseline.` };
@@ -331,11 +342,7 @@ export default function App() {
             <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#00D09C] to-[#25D7AA] flex items-center justify-center shadow-lg shadow-[#00D09C]/20 shrink-0">
               <Zap className="w-5 h-5 text-[#0F1115] fill-current" />
             </div>
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-lg font-bold tracking-tight text-white">Groww<span className="text-[#00D09C]"> Delta</span></span>
-              </div>
-            </div>
+            <span className="text-lg font-bold tracking-tight text-white">Groww<span className="text-[#00D09C]">Delta</span></span>
           </div>
 
           <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
@@ -384,7 +391,6 @@ export default function App() {
                     </span>
                   </button>
 
-                  {/* Actions Trigger for Active Tab */}
                   {isActive && (
                     <div className="flex items-center border-l border-[#262B34] pr-1 bg-[#181B20] rounded-r-xl">
                       <button
@@ -442,7 +448,7 @@ export default function App() {
             <p className="text-slate-300 font-medium text-sm">
               "{activeWatchlist?.name}" has no tracked stocks.
             </p>
-            <p className="text-slate-500 text-xs mt-1">Add equities from the Master Universe to track absence drift.</p>
+            <p className="text-slate-500 text-xs mt-1">Add equities from the Master Universe to track drift.</p>
             <button
               onClick={() => setIsAddStockOpen(true)}
               className="mt-4 inline-flex items-center gap-1.5 text-xs font-bold text-[#00D09C] hover:underline"
@@ -585,6 +591,7 @@ export default function App() {
                       const isStockPos = (stock.delta_pct || 0) >= 0;
                       const priceDiff = stock.ltp - stock.baseline;
                       const isZero = Math.abs(priceDiff) < 0.05;
+                      const effectiveBadge = getEffectiveBadge(stock);
 
                       return (
                         <div
@@ -655,17 +662,17 @@ export default function App() {
 
                           <div className="mt-4 pt-3 border-t border-[#232731] flex items-center justify-between text-xs">
                             <div>
-                              {stock.badge ? (
+                              {effectiveBadge ? (
                                 <span
                                   className={`font-bold px-2.5 py-0.5 rounded-full text-[10px] tracking-wide uppercase ${
-                                    stock.badge === "BREAKOUT"
+                                    effectiveBadge === "BREAKOUT"
                                       ? "bg-[#00D09C]/15 text-[#00D09C] border border-[#00D09C]/35"
-                                      : stock.badge === "MOMENTUM FADING"
+                                      : effectiveBadge === "MOMENTUM FADING"
                                       ? "bg-[#F59E0B]/15 text-[#FBBF24] border border-[#F59E0B]/35"
                                       : "bg-[#EB5B56]/15 text-[#EB5B56] border border-[#EB5B56]/35"
                                   }`}
                                 >
-                                  {stock.badge}
+                                  {effectiveBadge}
                                 </span>
                               ) : (
                                 <span className="text-slate-500 text-[11px]">Rangebound</span>
