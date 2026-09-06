@@ -5,6 +5,8 @@ import {
   Compass, Info, ArrowRight, MoreVertical, Edit2
 } from "lucide-react";
 
+const API_BASE = "https://smart-stock-watchlist.onrender.com";
+
 export default function App() {
   const [watchlists, setWatchlists] = useState([]);
   const [activeWatchlistId, setActiveWatchlistId] = useState(null);
@@ -42,7 +44,7 @@ export default function App() {
     is_held: false,
     quantity: 0
   });
-  const API_BASE = "https://smart-stock-watchlist.onrender.com";
+
   const fetchWatchlists = async () => {
     try {
       const res = await fetch(API_BASE + "/api/watchlists");
@@ -66,7 +68,7 @@ export default function App() {
     const timeoutId = setTimeout(() => controller.abort(), 10000);
 
     try {
-      const res = await fetch(`${API_BASE}/api/dashboard?watchlist_id=${activeWatchlistId}`, {
+      const res = await fetch(API_BASE + "/api/dashboard?watchlist_id=" + encodeURIComponent(activeWatchlistId), {
         signal: controller.signal
       });
       clearTimeout(timeoutId);
@@ -127,7 +129,7 @@ export default function App() {
     setIsSearching(true);
     searchTimeoutRef.current = setTimeout(async () => {
       try {
-        const res = await fetch(`${API_BASE}/api/stocks/search?query=${encodeURIComponent(val.trim())}`);
+        const res = await fetch(API_BASE + "/api/stocks/search?query=" + encodeURIComponent(val.trim()));
         const data = await res.json();
         setSearchResults(data);
       } catch (err) {
@@ -177,7 +179,7 @@ export default function App() {
     if (!trimmed) return;
 
     try {
-      const res = await fetch(`${API_BASE}/api/watchlists/${activeWatchlistId}/rename`, {
+      const res = await fetch(API_BASE + "/api/watchlists/" + encodeURIComponent(activeWatchlistId) + "/rename", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: trimmed })
@@ -201,7 +203,7 @@ export default function App() {
     }
     if (!window.confirm("Delete this watchlist?")) return;
     try {
-      await fetch(`${API_BASE}/api/watchlists/${id}`, { method: "DELETE" });
+      await fetch(API_BASE + "/api/watchlists/" + encodeURIComponent(id), { method: "DELETE" });
       const filtered = watchlists.filter((w) => w.id !== id);
       setWatchlists(filtered);
       setActiveWatchlistId(filtered[0].id);
@@ -248,7 +250,7 @@ export default function App() {
   const handleRemoveStock = async (symbol) => {
     if (!window.confirm(`Untrack ${symbol} from this watchlist?`)) return;
     try {
-      await fetch(`${API_BASE}/api/watchlists/${activeWatchlistId}/stocks/${symbol}`, { method: "DELETE" });
+      await fetch(API_BASE + "/api/watchlists/" + encodeURIComponent(activeWatchlistId) + "/stocks/" + encodeURIComponent(symbol), { method: "DELETE" });
       fetchDashboard(true);
     } catch (err) {
       console.error(err);
@@ -423,7 +425,7 @@ export default function App() {
                 setNewWlName("");
                 setIsCreateWlOpen(true);
               }}
-              className="text-xs px-3 py-1.5 rounded-xl text-slate-400 hover:text-[#00D09C] hover:bg-[#181B20] border border-dashed border-[#2C313E] transition flex items-center gap-1.5"
+              className="text-xs px-3.5 py-1.5 rounded-xl text-slate-400 hover:text-[#00D09C] hover:bg-[#181B20] border border-dashed border-[#2C313E] transition flex items-center gap-1.5"
             >
               <Plus className="w-3.5 h-3.5" /> New Watchlist
             </button>
