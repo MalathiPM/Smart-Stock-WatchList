@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { 
   Search, Plus, CheckCircle2, RotateCcw, Trash2, X, 
   TrendingUp, TrendingDown, Eye, RefreshCw, Zap, Layers, Activity, Award,
-  Compass, Info, ArrowRight, MoreVertical, Edit2
+  Compass, Info, ArrowRight, Edit2
 } from "lucide-react";
 
 const API_BASE = "https://smart-stock-watchlist.onrender.com";
@@ -15,12 +15,11 @@ export default function App() {
   const [isUndoState, setIsUndoState] = useState(false);
   const [isSyncingAction, setIsSyncingAction] = useState(false);
 
-  // Watchlist Modal & Edit States
+  // Watchlist Modal States
   const [isRenameOpen, setIsRenameOpen] = useState(false);
   const [isCreateWlOpen, setIsCreateWlOpen] = useState(false);
   const [renameInputValue, setRenameInputValue] = useState("");
   const [newWlName, setNewWlName] = useState("");
-  const [activeMenuId, setActiveMenuId] = useState(null);
 
   // Stock Add Modal State
   const [isAddStockOpen, setIsAddStockOpen] = useState(false);
@@ -31,7 +30,6 @@ export default function App() {
   const [isSearching, setIsSearching] = useState(false);
   const searchContainerRef = useRef(null);
   const searchTimeoutRef = useRef(null);
-  const menuRef = useRef(null);
 
   // Stock Form State
   const [formData, setFormData] = useState({
@@ -115,11 +113,6 @@ export default function App() {
       if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
         setSearchResults([]);
       }
-      if (menuRef.current && !menuRef.current.contains(e.target)) {
-        if (!e.target.closest("[data-menu-trigger]")) {
-          setActiveMenuId(null);
-        }
-      }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -196,7 +189,6 @@ export default function App() {
       if (!res.ok) throw new Error("Rename failed");
 
       setIsRenameOpen(false);
-      setActiveMenuId(null);
       await fetchWatchlists();
     } catch (err) {
       alert("Error renaming watchlist: " + err.message);
@@ -215,7 +207,6 @@ export default function App() {
       });
       if (!res.ok) throw new Error("Delete failed");
 
-      setActiveMenuId(null);
       const remaining = watchlists.filter((w) => w.id !== id);
       if (activeWatchlistId === id) {
         setActiveWatchlistId(remaining[0]?.id || null);
@@ -342,10 +333,7 @@ export default function App() {
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-lg font-bold tracking-tight text-white">Groww<span className="text-[#00D09C]">Delta</span></span>
-                <span className="text-[10px] bg-[#1C212A] text-[#00D09C] font-semibold px-2 py-0.5 rounded-full border border-[#00D09C]/30">
-                  ABSENCE INTELLIGENCE
-                </span>
+                <span className="text-lg font-bold tracking-tight text-white">Groww<span className="text-[#00D09C]"> Delta</span></span>
               </div>
             </div>
           </div>
@@ -375,19 +363,19 @@ export default function App() {
         </div>
 
         {/* Watchlist Tabs Strip */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between border-t border-[#1C2028] bg-[#0E1015]/90 py-2.5 relative z-30">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between border-t border-[#1C2028] bg-[#0E1015] py-2.5 relative z-50">
           <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar w-full sm:w-auto">
             {watchlists.map((wl) => {
               const isActive = wl.id === activeWatchlistId;
 
               return (
-                <div key={wl.id} className="relative inline-flex items-center flex-shrink-0" ref={isActive ? menuRef : null}>
+                <div key={wl.id} className="inline-flex items-center flex-shrink-0 bg-[#181B20] rounded-xl border border-[#232731]">
                   <button
                     onClick={() => setActiveWatchlistId(wl.id)}
-                    className={`text-xs px-3 sm:px-3.5 py-1.5 rounded-xl font-semibold transition whitespace-nowrap flex items-center gap-2 ${
+                    className={`text-xs px-3 sm:px-3.5 py-1.5 rounded-l-xl font-semibold transition whitespace-nowrap flex items-center gap-2 ${
                       isActive
-                        ? "bg-[#00D09C]/15 text-[#00D09C] border border-[#00D09C]/30 shadow-sm"
-                        : "bg-[#181B20] text-slate-400 hover:text-white border border-[#232731]"
+                        ? "bg-[#00D09C]/15 text-[#00D09C]"
+                        : "text-slate-400 hover:text-white"
                     }`}
                   >
                     <span>{wl.name}</span>
@@ -396,45 +384,27 @@ export default function App() {
                     </span>
                   </button>
 
-                  {/* 3-Dots Menu Button */}
+                  {/* Actions Trigger for Active Tab */}
                   {isActive && (
-                    <button
-                      type="button"
-                      data-menu-trigger="true"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setActiveMenuId((prev) => (prev === wl.id ? null : wl.id));
-                      }}
-                      className="p-1.5 hover:text-white text-slate-400 rounded-lg hover:bg-[#232731] transition -ml-1 flex-shrink-0"
-                      title="Watchlist Options"
-                    >
-                      <MoreVertical className="w-3.5 h-3.5 pointer-events-none" />
-                    </button>
-                  )}
-
-                  {/* Menu Dropdown */}
-                  {activeMenuId === wl.id && (
-                    <div 
-                      className="absolute top-full left-0 mt-2 bg-[#1C2028] border border-[#2D3340] rounded-xl shadow-2xl py-1.5 w-36 z-[9999]"
-                      style={{ filter: "drop-shadow(0 10px 15px rgba(0,0,0,0.5))" }}
-                    >
+                    <div className="flex items-center border-l border-[#262B34] pr-1 bg-[#181B20] rounded-r-xl">
                       <button
                         type="button"
                         onClick={() => {
                           setRenameInputValue(wl.name);
                           setIsRenameOpen(true);
-                          setActiveMenuId(null);
                         }}
-                        className="w-full text-left px-3.5 py-2 text-xs text-slate-200 hover:bg-[#252B37] hover:text-[#00D09C] flex items-center gap-2 transition font-medium"
+                        className="p-1.5 text-slate-400 hover:text-[#00D09C] hover:bg-[#252B37] rounded transition"
+                        title="Rename Watchlist"
                       >
-                        <Edit2 className="w-3.5 h-3.5 text-slate-400" /> Rename
+                        <Edit2 className="w-3.5 h-3.5" />
                       </button>
                       <button
                         type="button"
                         onClick={() => handleDeleteWatchlist(wl.id)}
-                        className="w-full text-left px-3.5 py-2 text-xs text-[#EB5B56] hover:bg-[#252B37] flex items-center gap-2 transition font-medium border-t border-[#232731] mt-1 pt-2"
+                        className="p-1.5 text-slate-400 hover:text-[#EB5B56] hover:bg-[#252B37] rounded transition"
+                        title="Delete Watchlist"
                       >
-                        <Trash2 className="w-3.5 h-3.5 text-[#EB5B56]" /> Delete
+                        <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   )}
