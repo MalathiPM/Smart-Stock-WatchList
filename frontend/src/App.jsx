@@ -42,10 +42,10 @@ export default function App() {
     is_held: false,
     quantity: 0
   });
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://smart-stock-watchlist.onrender.com";
+  const API_BASE = "https://smart-stock-watchlist.onrender.com";
   const fetchWatchlists = async () => {
     try {
-      const res = await fetch("${API_BASE}/api/watchlists");
+      const res = await fetch(API_BASE + "/api/watchlists");
       if (!res.ok) throw new Error("Failed to load watchlists");
       const list = await res.json();
       setWatchlists(list);
@@ -156,7 +156,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://smart-stock-watch
     e.preventDefault();
     if (!newWlName.trim()) return;
     try {
-      const res = await fetch("${API_BASE}/api/watchlists", {
+      const res = await fetch(API_BASE + "/api/watchlists", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: newWlName.trim() })
@@ -215,7 +215,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://smart-stock-watch
     e.preventDefault();
     if (!formData.symbol || !formData.ltp) return;
     try {
-      await fetch("${API_BASE}/api/stocks/add", {
+      await fetch(API_BASE + "/api/stocks/add", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -259,11 +259,11 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || "https://smart-stock-watch
     setIsSyncingAction(true);
     try {
       if (!isUndoState) {
-        const res = await fetch("${API_BASE}/api/snapshot/ack", { method: "POST" });
+        const res = await fetch(API_BASE + "/api/snapshot/ack", { method: "POST" });
         const data = await res.json();
         setIsUndoState(data.can_undo);
       } else {
-        await fetch("${API_BASE}/api/snapshot/undo", { method: "POST" });
+        await fetch(API_BASE + "/api/snapshot/undo", { method: "POST" });
         setIsUndoState(false);
       }
       await fetchDashboard(true);
