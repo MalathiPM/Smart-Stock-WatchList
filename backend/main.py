@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import certifi
 from typing import Optional, List
 from fastapi import FastAPI, HTTPException
@@ -38,6 +39,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ----------------- IN-MEMORY TTL CACHE -----------------
+DASHBOARD_CACHE = {}
+CACHE_TTL = 15  # seconds
+
 @app.get("/healthz")
 def health_check():
     return {"status": "alive"}
@@ -64,7 +69,6 @@ class AddStockPayload(BaseModel):
 def get_or_create_default_watchlist(user_id: str = "demo_user"):
     wl = db.user_watchlists.find_one({"user_id": user_id, "is_default": True})
     if not wl:
-        # Migrate existing items if available
         existing_items = list(db.watchlists.find({"is_active": True}))
         symbols = [item["symbol"].strip().upper() for item in existing_items]
         if not symbols:
@@ -103,6 +107,7 @@ def create_watchlist(payload: WatchlistCreate, user_id: str = "demo_user"):
         "symbols": []
     }
     res = db.user_watchlists.insert_one(doc)
+    DASHBOARD_CACHE.clear()
     return {"id": str(res.inserted_id), "name": name, "symbols": []}
 
 @app.put("/api/watchlists/{watchlist_id}/rename")
@@ -115,6 +120,7 @@ def rename_watchlist(watchlist_id: str, payload: WatchlistRename, user_id: str =
         {"_id": ObjectId(watchlist_id), "user_id": user_id},
         {"$set": {"name": new_name}}
     )
+    DASHBOARD_CACHE.clear()
     return {"status": "success", "name": new_name}
 
 @app.delete("/api/watchlists/{watchlist_id}")
@@ -129,18 +135,27 @@ def delete_watchlist(watchlist_id: str, user_id: str = "demo_user"):
     
     db.user_watchlists.delete_one({"_id": ObjectId(watchlist_id), "user_id": user_id})
     
-    # If deleted was default, promote another
     if target.get("is_default"):
         remaining = db.user_watchlists.find_one({"user_id": user_id})
         if remaining:
             db.user_watchlists.update_one({"_id": remaining["_id"]}, {"$set": {"is_default": True}})
             
+    DASHBOARD_CACHE.clear()
     return {"status": "success"}
 
-# ----------------- DASHBOARD ROUTE (PER-WATCHLIST AWARE) -----------------
+# ----------------- DASHBOARD ROUTE (PER-WATCHLIST AWARE & CACHED) -----------------
 
 @app.get("/api/dashboard")
 def get_dashboard(watchlist_id: Optional[str] = None, user_id: str = "demo_user"):
+    cache_key = f"{user_id}:{watchlist_id}"
+    now = time.time()
+
+    # Serve from RAM if cached within TTL
+    if cache_key in DASHBOARD_CACHE:
+        cached_data, timestamp = DASHBOARD_CACHE[cache_key]
+        if now - timestamp < CACHE_TTL:
+            return cached_data
+
     if watchlist_id and watchlist_id != "undefined":
         try:
             active_wl = db.user_watchlists.find_one({"_id": ObjectId(watchlist_id), "user_id": user_id})
@@ -162,6 +177,9 @@ def get_dashboard(watchlist_id: Optional[str] = None, user_id: str = "demo_user"
     dashboard_data["can_undo"] = bool(snapshot_doc.get("previous_prices"))
     dashboard_data["watchlist_id"] = str(active_wl["_id"])
     dashboard_data["watchlist_name"] = active_wl["name"]
+
+    # Save to memory cache
+    DASHBOARD_CACHE[cache_key] = (dashboard_data, now)
     return dashboard_data
 
 # ----------------- STOCKS CRUD (SCOPED TO WATCHLIST) -----------------
@@ -211,6 +229,7 @@ def add_custom_stock(payload: AddStockPayload, user_id: str = "demo_user"):
             upsert=True
         )
 
+    DASHBOARD_CACHE.clear()
     return {"status": "success", "symbol": sym}
 
 @app.delete("/api/watchlists/{watchlist_id}/stocks/{symbol}")
@@ -220,6 +239,7 @@ def remove_stock_from_watchlist(watchlist_id: str, symbol: str, user_id: str = "
         {"_id": ObjectId(watchlist_id), "user_id": user_id},
         {"$pull": {"symbols": sym}}
     )
+    DASHBOARD_CACHE.clear()
     return {"status": "success", "removed": sym}
 
 # ----------------- SNAPSHOT ACK & UNDO -----------------
@@ -237,6 +257,7 @@ def mark_all_as_seen(user_id: str = "demo_user"):
         {"$set": {"prices": new_prices, "previous_prices": prev_prices}},
         upsert=True
     )
+    DASHBOARD_CACHE.clear()
     return {"status": "success", "can_undo": bool(prev_prices)}
 
 @app.post("/api/snapshot/undo")
@@ -262,6 +283,7 @@ def undo_mark_seen(user_id: str = "demo_user"):
         {"user_id": user_id},
         {"$set": {"prices": prev_prices}, "$unset": {"previous_prices": ""}}
     )
+    DASHBOARD_CACHE.clear()
     return {"status": "success"}
 
 @app.get("/api/stocks/search")
