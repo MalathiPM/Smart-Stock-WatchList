@@ -265,14 +265,21 @@ export default function App() {
   };
 
   const handleToggleBaselineSnapshot = async () => {
+    if (isSyncingAction) return;
     setIsSyncingAction(true);
+
+    const nextState = !isUndoState;
+    setIsUndoState(nextState);
+
     try {
-      const endpoint = !isUndoState ? "/api/snapshot/ack" : "/api/snapshot/undo";
+      const endpoint = nextState ? "/api/snapshot/ack" : "/api/snapshot/undo";
       const res = await fetch(API_BASE + endpoint, { method: "POST" });
       const data = await res.json();
-      setIsUndoState(Boolean(data.can_undo));
+      
+      if (typeof data?.can_undo === "boolean") {
+        setIsUndoState(data.can_undo);
+      }
 
-      // Force fresh dashboard sync with timestamp
       const dashRes = await fetch(
         API_BASE + "/api/dashboard?watchlist_id=" + encodeURIComponent(activeWatchlistId) + "&_t=" + Date.now()
       );
@@ -282,6 +289,7 @@ export default function App() {
       }
     } catch (err) {
       console.error("Toggle error:", err);
+      setIsUndoState(!nextState);
     } finally {
       setIsSyncingAction(false);
     }
@@ -350,14 +358,15 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
-            {/* Tooltip Wrapper */}
-            <div className="relative group inline-block">
+            {/* Tooltip & Action Button Container */}
+            <div className="relative group flex items-center">
               <button
+                type="button"
                 onClick={handleToggleBaselineSnapshot}
                 disabled={isSyncingAction}
-                className={`flex items-center gap-1.5 sm:gap-2 text-xs font-semibold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl border transition duration-200 active:scale-95 ${
+                className={`flex items-center gap-1.5 sm:gap-2 text-xs font-semibold px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border transition-all duration-200 active:scale-95 cursor-pointer ${
                   isUndoState
-                    ? "bg-[#252219] hover:bg-[#302B1F] text-[#FBBF24] border-[#F59E0B]/40 shadow-md shadow-[#F59E0B]/10"
+                    ? "bg-[#2A2315] hover:bg-[#382E1A] text-[#FBBF24] border-[#F59E0B]/50 shadow-md shadow-[#F59E0B]/10"
                     : "bg-[#1C212A] hover:bg-[#252C37] text-slate-200 border-[#2D3340]"
                 }`}
               >
@@ -371,14 +380,15 @@ export default function App() {
                 <span>{isUndoState ? "Undo Reset" : "Mark All As Seen"}</span>
               </button>
 
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 hidden group-hover:flex items-center px-2.5 py-1 bg-[#1A1E26] text-slate-200 text-[11px] font-medium rounded-lg border border-[#2E3544] shadow-xl whitespace-nowrap pointer-events-none z-50">
+              {/* 3-4 word Microcopy Hover Tooltip */}
+              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-150 px-2.5 py-1 bg-[#1A1E26] text-slate-200 text-[11px] font-medium rounded-lg border border-[#2E3544] shadow-2xl whitespace-nowrap z-[9999]">
                 {isUndoState ? "Restore prior prices" : "Reset drift to ₹0"}
               </div>
             </div>
 
             <button
               onClick={() => setIsAddStockOpen(true)}
-              className="flex items-center gap-1.5 sm:gap-2 text-xs font-bold bg-[#00D09C] hover:bg-[#00B98A] text-[#0F1115] px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl shadow-lg shadow-[#00D09C]/25 transition duration-150 active:scale-95"
+              className="flex items-center gap-1.5 sm:gap-2 text-xs font-bold bg-[#00D09C] hover:bg-[#00B98A] text-[#0F1115] px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl shadow-lg shadow-[#00D09C]/25 transition duration-150 active:scale-95 cursor-pointer"
             >
               <Plus className="w-4 h-4 stroke-[2.5]" />
               <span>Add Stock</span>

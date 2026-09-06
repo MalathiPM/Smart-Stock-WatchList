@@ -163,7 +163,6 @@ def get_dashboard(watchlist_id: Optional[str] = None, user_id: str = "demo_user"
     cache_key = f"{user_id}:{watchlist_id}"
     now = time.time()
 
-    # Bypass cache if explicit cache-busting timestamp param is present
     if not _t and cache_key in DASHBOARD_CACHE:
         cached_data, timestamp = DASHBOARD_CACHE[cache_key]
         if now - timestamp < CACHE_TTL:
@@ -267,20 +266,23 @@ def remove_stock_from_watchlist(watchlist_id: str, symbol: str, user_id: str = "
 def mark_all_as_seen(user_id: str = "demo_user"):
     DASHBOARD_CACHE.clear()
     current_doc = db.user_view_snapshots.find_one({"user_id": user_id}) or {}
-    prev_prices = current_doc.get("prices", {})
+    old_active_prices = current_doc.get("prices", {})
 
     all_telemetry = list(db.global_telemetry_cache.find({}, {"_id": 0}))
-    new_prices = {doc["symbol"]: doc["ltp"] for doc in all_telemetry if "ltp" in doc}
+    new_prices = {doc["symbol"]: float(doc["ltp"]) for doc in all_telemetry if "ltp" in doc}
 
     for wl in db.user_watchlists.find({"user_id": user_id}):
         for sym in wl.get("symbols", []):
             cached = db.global_telemetry_cache.find_one({"symbol": sym})
             if cached and "ltp" in cached:
-                new_prices[sym] = cached["ltp"]
+                new_prices[sym] = float(cached["ltp"])
+
+    if not old_active_prices:
+        old_active_prices = {s: round(p * 0.985, 2) for s, p in new_prices.items()}
 
     db.user_view_snapshots.update_one(
         {"user_id": user_id},
-        {"$set": {"prices": new_prices, "previous_prices": prev_prices}},
+        {"$set": {"prices": new_prices, "previous_prices": old_active_prices}},
         upsert=True
     )
     return {"status": "success", "can_undo": True}
@@ -293,11 +295,7 @@ def undo_mark_seen(user_id: str = "demo_user"):
 
     if not prev_prices:
         all_telemetry = list(db.global_telemetry_cache.find({}, {"_id": 0}))
-        prev_prices = {}
-        for item in all_telemetry:
-            sym = item["symbol"].strip().upper()
-            ltp = float(item.get("ltp", 100.0))
-            prev_prices[sym] = round(ltp * 0.985, 2)
+        prev_prices = {item["symbol"]: round(float(item.get("ltp", 100.0)) * 0.985, 2) for item in all_telemetry}
 
     db.user_view_snapshots.update_one(
         {"user_id": user_id},
