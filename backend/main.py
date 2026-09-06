@@ -116,16 +116,29 @@ def rename_watchlist(watchlist_id: str, payload: WatchlistRename, user_id: str =
     if not new_name:
         raise HTTPException(status_code=400, detail="Name cannot be empty")
     
-    db.user_watchlists.update_one(
-        {"_id": ObjectId(watchlist_id), "user_id": user_id},
+    try:
+        oid = ObjectId(watchlist_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid watchlist ID format")
+
+    res = db.user_watchlists.update_one(
+        {"_id": oid, "user_id": user_id},
         {"$set": {"name": new_name}}
     )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+
     DASHBOARD_CACHE.clear()
     return {"status": "success", "name": new_name}
 
 @app.delete("/api/watchlists/{watchlist_id}")
 def delete_watchlist(watchlist_id: str, user_id: str = "demo_user"):
-    target = db.user_watchlists.find_one({"_id": ObjectId(watchlist_id), "user_id": user_id})
+    try:
+        oid = ObjectId(watchlist_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid watchlist ID format")
+
+    target = db.user_watchlists.find_one({"_id": oid, "user_id": user_id})
     if not target:
         raise HTTPException(status_code=404, detail="Watchlist not found")
     
@@ -133,7 +146,7 @@ def delete_watchlist(watchlist_id: str, user_id: str = "demo_user"):
     if total_count <= 1:
         raise HTTPException(status_code=400, detail="Cannot delete your only watchlist")
     
-    db.user_watchlists.delete_one({"_id": ObjectId(watchlist_id), "user_id": user_id})
+    db.user_watchlists.delete_one({"_id": oid, "user_id": user_id})
     
     if target.get("is_default"):
         remaining = db.user_watchlists.find_one({"user_id": user_id})
@@ -143,14 +156,13 @@ def delete_watchlist(watchlist_id: str, user_id: str = "demo_user"):
     DASHBOARD_CACHE.clear()
     return {"status": "success"}
 
-# ----------------- DASHBOARD ROUTE (PER-WATCHLIST AWARE & CACHED) -----------------
+# ----------------- DASHBOARD ROUTE -----------------
 
 @app.get("/api/dashboard")
 def get_dashboard(watchlist_id: Optional[str] = None, user_id: str = "demo_user"):
     cache_key = f"{user_id}:{watchlist_id}"
     now = time.time()
 
-    # Serve from RAM if cached within TTL
     if cache_key in DASHBOARD_CACHE:
         cached_data, timestamp = DASHBOARD_CACHE[cache_key]
         if now - timestamp < CACHE_TTL:
@@ -169,7 +181,6 @@ def get_dashboard(watchlist_id: Optional[str] = None, user_id: str = "demo_user"
 
     active_symbols = active_wl.get("symbols", [])
 
-    # Fetch live quotes
     gateway_data = fetch_telemetry()
     dashboard_data = synthesize_dashboard(user_id, gateway_data, target_symbols=active_symbols)
 
@@ -178,11 +189,10 @@ def get_dashboard(watchlist_id: Optional[str] = None, user_id: str = "demo_user"
     dashboard_data["watchlist_id"] = str(active_wl["_id"])
     dashboard_data["watchlist_name"] = active_wl["name"]
 
-    # Save to memory cache
     DASHBOARD_CACHE[cache_key] = (dashboard_data, now)
     return dashboard_data
 
-# ----------------- STOCKS CRUD (SCOPED TO WATCHLIST) -----------------
+# ----------------- STOCKS CRUD -----------------
 
 @app.post("/api/stocks/add")
 def add_custom_stock(payload: AddStockPayload, user_id: str = "demo_user"):
@@ -190,13 +200,16 @@ def add_custom_stock(payload: AddStockPayload, user_id: str = "demo_user"):
     ltp = float(payload.ltp)
     anchor_price = float(payload.baseline) if payload.baseline and payload.baseline > 0 else round(ltp * 0.985, 2)
 
-    # 1. Add symbol to selected watchlist
+    try:
+        oid = ObjectId(payload.watchlist_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid watchlist ID format")
+
     db.user_watchlists.update_one(
-        {"_id": ObjectId(payload.watchlist_id), "user_id": user_id},
+        {"_id": oid, "user_id": user_id},
         {"$addToSet": {"symbols": sym}}
     )
 
-    # 2. Update symbol master and cache
     multiplier = 2.5 if "Surge" in payload.volume_behavior else (0.5 if "Drying" in payload.volume_behavior else 1.0)
     db.global_telemetry_cache.update_one(
         {"symbol": sym},
@@ -235,8 +248,13 @@ def add_custom_stock(payload: AddStockPayload, user_id: str = "demo_user"):
 @app.delete("/api/watchlists/{watchlist_id}/stocks/{symbol}")
 def remove_stock_from_watchlist(watchlist_id: str, symbol: str, user_id: str = "demo_user"):
     sym = symbol.upper().strip()
+    try:
+        oid = ObjectId(watchlist_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid watchlist ID format")
+
     db.user_watchlists.update_one(
-        {"_id": ObjectId(watchlist_id), "user_id": user_id},
+        {"_id": oid, "user_id": user_id},
         {"$pull": {"symbols": sym}}
     )
     DASHBOARD_CACHE.clear()

@@ -51,12 +51,18 @@ export default function App() {
       if (!res.ok) throw new Error("Failed to load watchlists");
       const list = await res.json();
       setWatchlists(list);
-      if (list.length > 0 && !activeWatchlistId) {
-        const defaultWl = list.find((w) => w.is_default) || list[0];
-        setActiveWatchlistId(defaultWl.id);
+      if (list.length > 0) {
+        if (!activeWatchlistId || !list.some((w) => w.id === activeWatchlistId)) {
+          const defaultWl = list.find((w) => w.is_default) || list[0];
+          setActiveWatchlistId(defaultWl.id);
+        }
+      } else {
+        setActiveWatchlistId(null);
       }
+      return list;
     } catch (err) {
       console.error(err);
+      return [];
     }
   };
 
@@ -110,7 +116,9 @@ export default function App() {
         setSearchResults([]);
       }
       if (menuRef.current && !menuRef.current.contains(e.target)) {
-        setActiveMenuId(null);
+        if (!e.target.closest("[data-menu-trigger]")) {
+          setActiveMenuId(null);
+        }
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -155,27 +163,29 @@ export default function App() {
 
   const handleCreateWatchlist = async (e) => {
     e.preventDefault();
-    if (!newWlName.trim()) return;
+    const trimmed = newWlName.trim();
+    if (!trimmed) return;
     try {
       const res = await fetch(API_BASE + "/api/watchlists", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newWlName.trim() })
+        body: JSON.stringify({ name: trimmed })
       });
+      if (!res.ok) throw new Error("Failed to create watchlist");
       const created = await res.json();
-      setWatchlists([...watchlists, created]);
+      await fetchWatchlists();
       setActiveWatchlistId(created.id);
       setNewWlName("");
       setIsCreateWlOpen(false);
     } catch (err) {
-      alert("Error creating watchlist");
+      alert("Error creating watchlist: " + err.message);
     }
   };
 
   const handleRenameSubmit = async (e) => {
     e.preventDefault();
     const trimmed = renameInputValue.trim();
-    if (!trimmed) return;
+    if (!trimmed || !activeWatchlistId) return;
 
     try {
       const res = await fetch(API_BASE + "/api/watchlists/" + encodeURIComponent(activeWatchlistId) + "/rename", {
@@ -185,13 +195,11 @@ export default function App() {
       });
       if (!res.ok) throw new Error("Rename failed");
 
-      setWatchlists((prev) =>
-        prev.map((w) => (w.id === activeWatchlistId ? { ...w, name: trimmed } : w))
-      );
       setIsRenameOpen(false);
       setActiveMenuId(null);
+      await fetchWatchlists();
     } catch (err) {
-      alert("Error renaming watchlist");
+      alert("Error renaming watchlist: " + err.message);
     }
   };
 
@@ -202,13 +210,19 @@ export default function App() {
     }
     if (!window.confirm("Delete this watchlist?")) return;
     try {
-      await fetch(API_BASE + "/api/watchlists/" + encodeURIComponent(id), { method: "DELETE" });
-      const filtered = watchlists.filter((w) => w.id !== id);
-      setWatchlists(filtered);
-      setActiveWatchlistId(filtered[0].id);
+      const res = await fetch(API_BASE + "/api/watchlists/" + encodeURIComponent(id), { 
+        method: "DELETE" 
+      });
+      if (!res.ok) throw new Error("Delete failed");
+
       setActiveMenuId(null);
+      const remaining = watchlists.filter((w) => w.id !== id);
+      if (activeWatchlistId === id) {
+        setActiveWatchlistId(remaining[0]?.id || null);
+      }
+      await fetchWatchlists();
     } catch (err) {
-      alert("Error deleting watchlist");
+      alert("Error deleting watchlist: " + err.message);
     }
   };
 
@@ -241,6 +255,7 @@ export default function App() {
         quantity: 0
       });
       fetchDashboard(true);
+      fetchWatchlists();
     } catch (err) {
       console.error(err);
     }
@@ -251,6 +266,7 @@ export default function App() {
     try {
       await fetch(API_BASE + "/api/watchlists/" + encodeURIComponent(activeWatchlistId) + "/stocks/" + encodeURIComponent(symbol), { method: "DELETE" });
       fetchDashboard(true);
+      fetchWatchlists();
     } catch (err) {
       console.error(err);
     }
@@ -313,7 +329,7 @@ export default function App() {
     return { tone: "neutral", text: `Sector is rangebound. Prices fluctuating within normal bounds (${avg > 0 ? "+" : ""}${avg.toFixed(2)}%).` };
   };
 
-  const activeWatchlist = watchlists.find(w => w.id === activeWatchlistId);
+  const activeWatchlist = watchlists.find((w) => w.id === activeWatchlistId);
 
   return (
     <div className="min-h-screen bg-[#0F1115] text-[#F3F4F6] font-sans antialiased selection:bg-[#00D09C]/20 selection:text-[#00D09C]">
@@ -384,11 +400,15 @@ export default function App() {
                   {isActive && (
                     <button
                       type="button"
-                      onClick={() => setActiveMenuId((prev) => (prev === wl.id ? null : wl.id))}
+                      data-menu-trigger="true"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveMenuId((prev) => (prev === wl.id ? null : wl.id));
+                      }}
                       className="p-1.5 hover:text-white text-slate-400 rounded-lg hover:bg-[#232731] transition -ml-1"
                       title="Watchlist Options"
                     >
-                      <MoreVertical className="w-3.5 h-3.5" />
+                      <MoreVertical className="w-3.5 h-3.5 pointer-events-none" />
                     </button>
                   )}
 
@@ -432,7 +452,7 @@ export default function App() {
         </div>
       </header>
 
-      {/* Content Layout */}
+      {/* Main Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-9">
         {!dashboard ? (
           <div className="space-y-6">
