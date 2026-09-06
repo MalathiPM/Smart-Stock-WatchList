@@ -1,0 +1,7 @@
+﻿fastapi
+uvicorn
+pymongo
+certifi
+python-dotenv
+pydantic
+yfinance
