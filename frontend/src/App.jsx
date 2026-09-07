@@ -213,9 +213,6 @@ export default function App() {
           </div>
           <div className="flex items-center gap-3">
             <h1 className="text-xl font-bold tracking-tight text-white">GrowwDelta</h1>
-            <span className="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
-              Absence Intelligence
-            </span>
           </div>
         </div>
 
