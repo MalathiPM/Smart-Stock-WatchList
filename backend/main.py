@@ -2,7 +2,7 @@ import os
 import random
 from datetime import datetime
 from typing import Dict, List, Optional
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pymongo import MongoClient
@@ -18,14 +18,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# MongoDB Configuration
 MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
 DB_NAME = os.getenv("DB_NAME", "deltawatch")
 
 client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
 
-# In-Memory Dynamic Price State Engine
 STOCK_UNIVERSE = {
     "TATATECH": {"name": "Tata Technologies", "sector": "IT", "base_price": 950.00},
     "SUNPHARMA": {"name": "Sun Pharma. Inds.", "sector": "PHARMA", "base_price": 1895.00},
@@ -37,9 +35,12 @@ STOCK_UNIVERSE = {
     "RELIANCE": {"name": "Reliance Industries", "sector": "ENERGY", "base_price": 2980.00},
     "INFY": {"name": "Infosys Ltd", "sector": "IT", "base_price": 1845.00},
     "HDFCBANK": {"name": "HDFC Bank Ltd", "sector": "FINANCE", "base_price": 1650.00},
+    "TCS": {"name": "Tata Consultancy Services", "sector": "IT", "base_price": 4210.00},
+    "ICICIBANK": {"name": "ICICI Bank Ltd", "sector": "FINANCE", "base_price": 1240.00},
+    "SBIN": {"name": "State Bank of India", "sector": "FINANCE", "base_price": 815.00},
+    "TATAMOTORS": {"name": "Tata Motors Ltd", "sector": "AUTO", "base_price": 985.00},
 }
 
-# Live dynamic price cache (simulates continuous live market fluctuations)
 LIVE_PRICES: Dict[str, float] = {}
 
 def get_live_price(symbol: str) -> float:
@@ -50,14 +51,12 @@ def get_live_price(symbol: str) -> float:
     # Small simulated step drift (-0.35% to +0.35%) per tick
     step_pct = random.uniform(-0.0035, 0.0035)
     new_price = round(LIVE_PRICES[symbol] * (1 + step_pct), 2)
-    # Prevent drifting more than 5% away from true base
     if abs(new_price - base) / base > 0.05:
         new_price = round(base * (1 + random.uniform(-0.01, 0.01)), 2)
 
     LIVE_PRICES[symbol] = new_price
     return new_price
 
-# Startup Database Seeding
 @app.on_event("startup")
 def seed_default_watchlist():
     if db.watchlists.count_documents({}) == 0:
@@ -71,12 +70,10 @@ def seed_default_watchlist():
             {"symbol": "TATAGOLD", "held": False, "shares": 0, "volume_type": "Normal"}
         ]
         
-        # Initialize snapshot baselines slightly below or above to show initial drift
         initial_snapshots = {}
         for s in default_stocks:
             sym = s["symbol"]
             current_p = get_live_price(sym)
-            # Create a 1.5% prior divergence so the dashboard looks active right away
             prior_p = round(current_p * random.choice([0.985, 1.015]), 2)
             initial_snapshots[sym] = {
                 "seen_price": prior_p,
@@ -90,7 +87,6 @@ def seed_default_watchlist():
             "undo_snapshots": {}
         })
 
-# Models
 class AddStockRequest(BaseModel):
     symbol: str
     held: bool = False
@@ -103,7 +99,33 @@ class CreateWatchlistRequest(BaseModel):
 class RenameWatchlistRequest(BaseModel):
     name: str
 
-# Endpoints
+@app.get("/api/stocks/search")
+def dynamic_stock_search(q: str = Query("", description="Search ticker or name")):
+    query = q.strip().upper()
+    if not query:
+        return []
+
+    results = []
+    for sym, details in STOCK_UNIVERSE.items():
+        if query in sym or query in details.get("name", "").upper():
+            live_ltp = get_live_price(sym)
+            results.append({
+                "symbol": sym,
+                "name": details.get("name", f"{sym} Ltd"),
+                "sector": details.get("sector", "GENERAL"),
+                "ltp": live_ltp
+            })
+    
+    if not any(r["symbol"] == query for r in results) and len(query) >= 2:
+        results.append({
+            "symbol": query,
+            "name": f"{query} Industries",
+            "sector": "GENERAL",
+            "ltp": get_live_price(query)
+        })
+
+    return results[:8]
+
 @app.get("/api/watchlists")
 def list_watchlists():
     wls = list(db.watchlists.find())
@@ -150,22 +172,18 @@ def get_watchlist(watchlist_id: str):
     breakout_count = 0
     fading_count = 0
     drag_count = 0
-
     sectors = {}
 
     for s in wl.get("stocks", []):
         sym = s["symbol"]
-        meta = STOCK_UNIVERSE.get(sym, {"name": sym, "sector": "OTHERS", "base_price": 500.00})
+        meta = STOCK_UNIVERSE.get(sym, {"name": f"{sym} Corp", "sector": "GENERAL", "base_price": 500.00})
         
         now_price = get_live_price(sym)
-        
-        # Read saved session baseline (fallback to now_price if never saved)
         seen_price = snapshots.get(sym, {}).get("seen_price", now_price)
         
         delta_val = round(now_price - seen_price, 2)
         delta_pct = round((delta_val / seen_price) * 100, 2) if seen_price > 0 else 0.0
 
-        # Behavioral heuristics
         vol_type = s.get("volume_type", "Normal")
         if delta_pct >= 1.0 and vol_type == "Surge Volume":
             flag = "BREAKOUT"
@@ -179,7 +197,6 @@ def get_watchlist(watchlist_id: str):
         else:
             flag = "Rangebound"
 
-        # Held asset P&L drift calculation
         impact_val = 0.0
         if s.get("held", False) and s.get("shares", 0) > 0:
             held_count += 1
@@ -201,16 +218,13 @@ def get_watchlist(watchlist_id: str):
         }
         stocks_out.append(stock_item)
 
-        # Sector clustering
         sec = meta["sector"]
         if sec not in sectors:
             sectors[sec] = []
         sectors[sec].append(stock_item)
 
-    # Absence leader
     leader = max(stocks_out, key=lambda x: abs(x["delta_pct"])) if stocks_out else None
 
-    # Sector commentary synthesis
     sector_clusters = []
     for sec_name, sec_stocks in sectors.items():
         avg_delta = sum(st["delta_pct"] for st in sec_stocks) / len(sec_stocks)
@@ -258,14 +272,12 @@ def mark_seen(watchlist_id: str):
     if not wl:
         raise HTTPException(status_code=404, detail="Watchlist not found")
 
-    # 1. Save existing baselines for Undo support
     current_snapshots = wl.get("snapshots", {})
     db.watchlists.update_one(
         {"_id": ObjectId(watchlist_id)},
         {"$set": {"undo_snapshots": current_snapshots}}
     )
 
-    # 2. Re-anchor: lock seen_price = live price for each symbol
     new_snapshots = {}
     for s in wl.get("stocks", []):
         sym = s["symbol"]
@@ -292,7 +304,6 @@ def undo_seen(watchlist_id: str):
     if not undo_snapshots:
         raise HTTPException(status_code=400, detail="No previous baseline to restore")
 
-    # Restore baseline and clear undo buffer
     db.watchlists.update_one(
         {"_id": ObjectId(watchlist_id)},
         {"$set": {"snapshots": undo_snapshots, "undo_snapshots": {}}}
@@ -304,9 +315,10 @@ def undo_seen(watchlist_id: str):
 def add_stock(watchlist_id: str, req: AddStockRequest):
     sym = req.symbol.upper().strip()
     if sym not in STOCK_UNIVERSE:
-        STOCK_UNIVERSE[sym] = {"name": f"{sym} Corp", "sector": "GENERAL", "base_price": 500.00}
+        STOCK_UNIVERSE[sym] = {"name": f"{sym} Industries", "sector": "GENERAL", "base_price": 500.00}
 
     cur_price = get_live_price(sym)
+    baseline = round(cur_price * 0.98, 2) if req.volume_type == "Surge Volume" else cur_price
 
     stock_doc = {
         "symbol": sym,
@@ -314,9 +326,6 @@ def add_stock(watchlist_id: str, req: AddStockRequest):
         "shares": req.shares,
         "volume_type": req.volume_type
     }
-
-    # Baseline set with initial drift for breakout demonstration if requested
-    baseline = round(cur_price * 0.98, 2) if req.volume_type == "Surge Volume" else cur_price
 
     db.watchlists.update_one(
         {"_id": ObjectId(watchlist_id)},
