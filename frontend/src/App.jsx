@@ -1,95 +1,55 @@
-import React, { useState, useEffect, useRef } from "react";
-import { 
-  Search, Plus, CheckCircle2, RotateCcw, Trash2, X, 
-  TrendingUp, TrendingDown, Eye, RefreshCw, Zap, Layers, Activity, Award,
-  Compass, Info, ArrowRight, Edit2
-} from "lucide-react";
+import React, { useState, useEffect } from 'react';
 
-const API_BASE = "https://smart-stock-watchlist.onrender.com";
+const API_BASE = "https://smart-stock-watchlist.onrender.com/api"; 
+// or "http://localhost:8000/api" for local run
 
 export default function App() {
   const [watchlists, setWatchlists] = useState([]);
-  const [activeWatchlistId, setActiveWatchlistId] = useState(null);
-  const [dashboard, setDashboard] = useState(null);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isUndoState, setIsUndoState] = useState(false);
-  const [isSyncingAction, setIsSyncingAction] = useState(false);
+  const [activeId, setActiveId] = useState(null);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // Watchlist Modal States
-  const [isRenameOpen, setIsRenameOpen] = useState(false);
-  const [isCreateWlOpen, setIsCreateWlOpen] = useState(false);
-  const [renameInputValue, setRenameInputValue] = useState("");
+  // Modals
+  const [isAddOpen, setIsAddOpen] = useState(false);
+  const [newSym, setNewSym] = useState("");
+  const [isHeld, setIsHeld] = useState(false);
+  const [shares, setShares] = useState(10);
+  const [volType, setVolType] = useState("Surge Volume");
+
+  const [isNewWlOpen, setIsNewWlOpen] = useState(false);
   const [newWlName, setNewWlName] = useState("");
 
-  // Stock Add Modal State
-  const [isAddStockOpen, setIsAddStockOpen] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editName, setEditName] = useState("");
 
-  // Autocomplete State
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchResults, setSearchResults] = useState([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const searchContainerRef = useRef(null);
-  const searchTimeoutRef = useRef(null);
-
-  // Stock Form State
-  const [formData, setFormData] = useState({
-    symbol: "",
-    name: "",
-    sector: "Diversified",
-    ltp: "",
-    baseline: "",
-    volume_behavior: "Normal Volume (1.0x avg - Rangebound)",
-    is_held: false,
-    quantity: 0
-  });
-
+  // Load Watchlists
   const fetchWatchlists = async () => {
     try {
-      const res = await fetch(API_BASE + "/api/watchlists");
-      if (!res.ok) throw new Error("Failed to load watchlists");
+      const res = await fetch(`${API_BASE}/watchlists?_t=${Date.now()}`);
       const list = await res.json();
       setWatchlists(list);
-      if (list.length > 0) {
-        if (!activeWatchlistId || !list.some((w) => w.id === activeWatchlistId)) {
-          const defaultWl = list.find((w) => w.is_default) || list[0];
-          setActiveWatchlistId(defaultWl.id);
-        }
-      } else {
-        setActiveWatchlistId(null);
+      if (list.length > 0 && !activeId) {
+        setActiveId(list[0].id);
       }
-      return list;
     } catch (err) {
       console.error(err);
-      return [];
     }
   };
 
-  const fetchDashboard = async (isManual = false) => {
-    if (!activeWatchlistId) return;
-    if (isManual) setIsRefreshing(true);
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000);
-
+  // Load Active Watchlist Detail
+  const fetchActiveWatchlist = async () => {
+    if (!activeId) return;
     try {
-      const res = await fetch(
-        API_BASE + "/api/dashboard?watchlist_id=" + encodeURIComponent(activeWatchlistId) + "&_t=" + Date.now(),
-        { signal: controller.signal }
-      );
-      clearTimeout(timeoutId);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      if (data && data.sectors) {
-        setDashboard(data);
-      }
-      if (typeof data?.can_undo === "boolean") {
-        setIsUndoState(data.can_undo);
+      const res = await fetch(`${API_BASE}/watchlists/${activeId}?_t=${Date.now()}`);
+      if (res.ok) {
+        const json = await res.json();
+        setData(json);
+        setEditName(json.name);
       }
     } catch (err) {
-      console.warn("Dashboard sync notice:", err.message);
+      console.error(err);
     } finally {
-      clearTimeout(timeoutId);
-      setIsRefreshing(false);
+      setLoading(false);
     }
   };
 
@@ -98,853 +58,474 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (activeWatchlistId) {
-      setDashboard(null);
-      fetchDashboard();
-    }
-  }, [activeWatchlistId]);
-
-  useEffect(() => {
-    const interval = setInterval(() => fetchDashboard(false), 8000);
+    fetchActiveWatchlist();
+    // 5-second polling to capture continuous live ticks
+    const interval = setInterval(fetchActiveWatchlist, 5000);
     return () => clearInterval(interval);
-  }, [activeWatchlistId]);
+  }, [activeId]);
 
-  useEffect(() => {
-    function handleClickOutside(e) {
-      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target)) {
-        setSearchResults([]);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  // Mark All As Seen (Optimistic UI Update)
+  const handleMarkSeen = async () => {
+    if (!data) return;
 
-  const handleSearchChange = (val) => {
-    setSearchQuery(val);
-    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-    if (!val.trim() || val.trim().length < 2) {
-      setSearchResults([]);
-      setIsSearching(false);
-      return;
-    }
-    setIsSearching(true);
-    searchTimeoutRef.current = setTimeout(async () => {
-      try {
-        const res = await fetch(API_BASE + "/api/stocks/search?query=" + encodeURIComponent(val.trim()));
-        const data = await res.json();
-        setSearchResults(data);
-      } catch (err) {
-        setSearchResults([]);
-      } finally {
-        setIsSearching(false);
-      }
-    }, 180);
-  };
-
-  const handleSelectStock = (item) => {
-    const ltpValue = item.ltp && item.ltp > 0 ? item.ltp : 950.00;
-    setFormData((prev) => ({
-      ...prev,
-      symbol: item.symbol,
-      name: item.name,
-      sector: item.sector || "Diversified",
-      ltp: ltpValue,
-      baseline: (ltpValue * 0.985).toFixed(2)
+    // Zero out drift instantly on screen
+    const optimisticSectors = data.sectors.map(sec => ({
+      ...sec,
+      avg_delta: 0.00,
+      commentary: "Sector is rangebound. Prices fluctuating within normal bounds (+0.00%).",
+      stocks: sec.stocks.map(st => ({
+        ...st,
+        seen_price: st.now_price,
+        delta_val: 0.00,
+        delta_pct: 0.00,
+        flag: "Rangebound",
+        impact_val: 0.00
+      }))
     }));
-    setSearchQuery(`${item.symbol} - ${item.name}`);
-    setSearchResults([]);
+
+    setData(prev => ({
+      ...prev,
+      telemetry: {
+        ...prev.telemetry,
+        portfolio_absence_drift: 0.00,
+        leader_pct: 0.00,
+        breakout_count: 0,
+        fading_count: 0,
+        drag_count: 0,
+        has_undo: true
+      },
+      sectors: optimisticSectors
+    }));
+
+    await fetch(`${API_BASE}/watchlists/${activeId}/mark-seen`, { method: "POST" });
+    fetchActiveWatchlist();
   };
 
+  // Undo Reset
+  const handleUndoSeen = async () => {
+    await fetch(`${API_BASE}/watchlists/${activeId}/undo-seen`, { method: "POST" });
+    fetchActiveWatchlist();
+  };
+
+  // Add Stock
+  const handleAddStock = async (e) => {
+    e.preventDefault();
+    if (!newSym) return;
+    await fetch(`${API_BASE}/watchlists/${activeId}/stocks`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        symbol: newSym.toUpperCase(),
+        held: isHeld,
+        shares: parseInt(shares) || 0,
+        volume_type: volType
+      })
+    });
+    setIsAddOpen(false);
+    setNewSym("");
+    fetchActiveWatchlist();
+    fetchWatchlists();
+  };
+
+  // Delete Stock
+  const handleDeleteStock = async (sym) => {
+    await fetch(`${API_BASE}/watchlists/${activeId}/stocks/${sym}`, { method: "DELETE" });
+    fetchActiveWatchlist();
+    fetchWatchlists();
+  };
+
+  // Create Watchlist
   const handleCreateWatchlist = async (e) => {
     e.preventDefault();
-    const trimmed = newWlName.trim();
-    if (!trimmed) return;
-    try {
-      const res = await fetch(API_BASE + "/api/watchlists", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed })
-      });
-      if (!res.ok) throw new Error("Failed to create watchlist");
-      const created = await res.json();
-      await fetchWatchlists();
-      setActiveWatchlistId(created.id);
-      setNewWlName("");
-      setIsCreateWlOpen(false);
-    } catch (err) {
-      alert("Error creating watchlist: " + err.message);
-    }
+    if (!newWlName) return;
+    const res = await fetch(`${API_BASE}/watchlists`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: newWlName })
+    });
+    const created = await res.json();
+    setIsNewWlOpen(false);
+    setNewWlName("");
+    await fetchWatchlists();
+    setActiveId(created.id);
   };
 
-  const handleRenameSubmit = async (e) => {
-    e.preventDefault();
-    const trimmed = renameInputValue.trim();
-    if (!trimmed || !activeWatchlistId) return;
-
-    try {
-      const res = await fetch(API_BASE + "/api/watchlists/" + encodeURIComponent(activeWatchlistId) + "/rename", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed })
-      });
-      if (!res.ok) throw new Error("Rename failed");
-
-      setIsRenameOpen(false);
-      await fetchWatchlists();
-    } catch (err) {
-      alert("Error renaming watchlist: " + err.message);
-    }
+  // Rename Watchlist
+  const handleRename = async () => {
+    await fetch(`${API_BASE}/watchlists/${activeId}/rename`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: editName })
+    });
+    setIsEditing(false);
+    fetchWatchlists();
   };
 
-  const handleDeleteWatchlist = async (id) => {
-    if (watchlists.length <= 1) {
-      alert("You must keep at least one active watchlist.");
-      return;
-    }
+  // Delete Watchlist
+  const handleDeleteWatchlist = async () => {
     if (!window.confirm("Delete this watchlist?")) return;
-    try {
-      const res = await fetch(API_BASE + "/api/watchlists/" + encodeURIComponent(id), { 
-        method: "DELETE" 
-      });
-      if (!res.ok) throw new Error("Delete failed");
-
-      const remaining = watchlists.filter((w) => w.id !== id);
-      if (activeWatchlistId === id) {
-        setActiveWatchlistId(remaining[0]?.id || null);
-      }
-      await fetchWatchlists();
-    } catch (err) {
-      alert("Error deleting watchlist: " + err.message);
-    }
+    await fetch(`${API_BASE}/watchlists/${activeId}`, { method: "DELETE" });
+    const remaining = watchlists.filter(w => w.id !== activeId);
+    setWatchlists(remaining);
+    if (remaining.length > 0) setActiveId(remaining[0].id);
   };
 
-  const handleFormSubmit = async (e) => {
-    e.preventDefault();
-    if (!formData.symbol || !formData.ltp) return;
-    try {
-      await fetch(API_BASE + "/api/stocks/add", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...formData,
-          watchlist_id: activeWatchlistId,
-          ltp: parseFloat(formData.ltp),
-          baseline: formData.baseline ? parseFloat(formData.baseline) : null,
-          quantity: parseInt(formData.quantity) || 0
-        })
-      });
-      setIsAddStockOpen(false);
-      setSearchQuery("");
-      setSearchResults([]);
-      setFormData({
-        symbol: "",
-        name: "",
-        sector: "Diversified",
-        ltp: "",
-        baseline: "",
-        volume_behavior: "Normal Volume (1.0x avg - Rangebound)",
-        is_held: false,
-        quantity: 0
-      });
-      fetchDashboard(true);
-      fetchWatchlists();
-    } catch (err) {
-      console.error(err);
-    }
-  };
+  if (loading || !data) {
+    return (
+      <div className="min-h-screen bg-[#0d1117] text-white flex items-center justify-center">
+        <div className="text-xl text-emerald-400 animate-pulse">Loading GrowwDelta Engine...</div>
+      </div>
+    );
+  }
 
-  const handleRemoveStock = async (symbol) => {
-    if (!window.confirm(`Untrack ${symbol} from this watchlist?`)) return;
-    try {
-      await fetch(API_BASE + "/api/watchlists/" + encodeURIComponent(activeWatchlistId) + "/stocks/" + encodeURIComponent(symbol), { method: "DELETE" });
-      fetchDashboard(true);
-      fetchWatchlists();
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
-  const handleToggleBaselineSnapshot = async () => {
-    if (isSyncingAction) return;
-    setIsSyncingAction(true);
-
-    const nextState = !isUndoState;
-    setIsUndoState(nextState);
-
-    try {
-      const endpoint = nextState ? "/api/snapshot/ack" : "/api/snapshot/undo";
-      const res = await fetch(API_BASE + endpoint, { method: "POST" });
-      const data = await res.json();
-      
-      if (typeof data?.can_undo === "boolean") {
-        setIsUndoState(data.can_undo);
-      }
-
-      const dashRes = await fetch(
-        API_BASE + "/api/dashboard?watchlist_id=" + encodeURIComponent(activeWatchlistId) + "&_t=" + Date.now()
-      );
-      if (dashRes.ok) {
-        const freshData = await dashRes.json();
-        setDashboard(freshData);
-      }
-    } catch (err) {
-      console.error("Toggle error:", err);
-      setIsUndoState(!nextState);
-    } finally {
-      setIsSyncingAction(false);
-    }
-  };
-
-  const sectors = dashboard?.sectors || {};
-  const allStocks = Object.values(sectors).flatMap((s) => s.stocks || []);
-  let bestPerformer = null;
-  let totalHeldImpact = 0;
-  let heldStockCount = 0;
-  let breakoutCount = 0;
-  let fadingCount = 0;
-  let dragCount = 0;
-
-  allStocks.forEach((stk) => {
-    if (!bestPerformer || stk.delta_pct > bestPerformer.delta_pct) bestPerformer = stk;
-    
-    if (stk.badge === "BREAKOUT" || stk.delta_pct >= 1.5) breakoutCount += 1;
-    else if (stk.badge === "MOMENTUM FADING" || (stk.delta_pct > 0 && stk.delta_pct < 0.6)) fadingCount += 1;
-    else if (stk.badge === "CLUSTER DRAG" || stk.delta_pct <= -1.0) dragCount += 1;
-
-    if (stk.is_held) {
-      heldStockCount += 1;
-      if (stk.pnl_impact) totalHeldImpact += stk.pnl_impact;
-    }
-  });
-
-  const getEffectiveBadge = (stock) => {
-    if (stock.badge) return stock.badge;
-    if (stock.delta_pct >= 1.5) return "BREAKOUT";
-    if (stock.delta_pct > 0 && stock.delta_pct < 0.6) return "MOMENTUM FADING";
-    if (stock.delta_pct <= -1.0) return "CLUSTER DRAG";
-    return null;
-  };
-
-  const getSectorNarrative = (group) => {
-    const avg = group.sector_delta_avg || 0;
-    const count = group.stocks.length;
-    const positiveCount = group.stocks.filter((s) => s.delta_pct > 0).length;
-    const breakoutStocks = group.stocks.filter((s) => getEffectiveBadge(s) === "BREAKOUT");
-
-    if (breakoutStocks.length > 0) {
-      return { tone: "positive", text: `Active breakout detected in ${breakoutStocks.map((s) => s.symbol).join(", ")}. Volume supporting move.` };
-    }
-    if (avg <= -1.0) {
-      return { tone: "negative", text: `Cluster drag warning: ${count - positiveCount} of ${count} stocks sliding below baseline.` };
-    }
-    if (avg >= 1.0) {
-      return { tone: "positive", text: `Strong sector momentum: ${positiveCount} of ${count} stocks advancing comfortably above baseline.` };
-    }
-    return { tone: "neutral", text: `Sector is rangebound. Prices fluctuating within normal bounds (${avg > 0 ? "+" : ""}${avg.toFixed(2)}%).` };
-  };
-
-  const activeWatchlist = watchlists.find((w) => w.id === activeWatchlistId);
+  const { telemetry, sectors } = data;
 
   return (
-    <div className="min-h-screen bg-[#0F1115] text-[#F3F4F6] font-sans antialiased selection:bg-[#00D09C]/20 selection:text-[#00D09C]">
-      {/* Top Header */}
-      <header className="sticky top-0 z-40 bg-[#12151B]/95 backdrop-blur-md border-b border-[#232731]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 min-h-[4rem] py-2.5 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-[#00D09C] to-[#25D7AA] flex items-center justify-center shadow-lg shadow-[#00D09C]/20 shrink-0">
-              <Zap className="w-5 h-5 text-[#0F1115] fill-current" />
-            </div>
-            <span className="text-lg font-bold tracking-tight text-white">Groww<span className="text-[#00D09C]">Delta</span></span>
+    <div className="min-h-screen bg-[#0b0e14] text-gray-100 font-sans p-6">
+      {/* Navigation Header */}
+      <header className="max-w-7xl mx-auto flex items-center justify-between pb-6 border-b border-gray-800">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400 font-black text-xl">
+            ⚡
           </div>
-
-          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap">
-            {/* Tooltip & Action Button Container */}
-            <div className="relative group flex items-center">
-              <button
-                type="button"
-                onClick={handleToggleBaselineSnapshot}
-                disabled={isSyncingAction}
-                className={`flex items-center gap-1.5 sm:gap-2 text-xs font-semibold px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl border transition-all duration-200 active:scale-95 cursor-pointer ${
-                  isUndoState
-                    ? "bg-[#2A2315] hover:bg-[#382E1A] text-[#FBBF24] border-[#F59E0B]/50 shadow-md shadow-[#F59E0B]/10"
-                    : "bg-[#1C212A] hover:bg-[#252C37] text-slate-200 border-[#2D3340]"
-                }`}
-              >
-                {isSyncingAction ? (
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                ) : isUndoState ? (
-                  <RotateCcw className="w-4 h-4 text-[#FBBF24]" />
-                ) : (
-                  <CheckCircle2 className="w-4 h-4 text-[#00D09C]" />
-                )}
-                <span>{isUndoState ? "Undo Reset" : "Mark All As Seen"}</span>
-              </button>
-
-              {/* 3-4 word Microcopy Hover Tooltip */}
-              <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto transition-opacity duration-150 px-2.5 py-1 bg-[#1A1E26] text-slate-200 text-[11px] font-medium rounded-lg border border-[#2E3544] shadow-2xl whitespace-nowrap z-[9999]">
-                {isUndoState ? "Restore prior prices" : "Reset drift to ₹0"}
-              </div>
-            </div>
-
-            <button
-              onClick={() => setIsAddStockOpen(true)}
-              className="flex items-center gap-1.5 sm:gap-2 text-xs font-bold bg-[#00D09C] hover:bg-[#00B98A] text-[#0F1115] px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl shadow-lg shadow-[#00D09C]/25 transition duration-150 active:scale-95 cursor-pointer"
-            >
-              <Plus className="w-4 h-4 stroke-[2.5]" />
-              <span>Add Stock</span>
-            </button>
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2">
+              GrowwDelta
+              <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                Absence Intelligence
+              </span>
+            </h1>
           </div>
         </div>
 
-        {/* Watchlist Tabs Strip */}
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 flex items-center justify-between border-t border-[#1C2028] bg-[#0E1015] py-2.5 relative z-50">
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 no-scrollbar w-full sm:w-auto">
-            {watchlists.map((wl) => {
-              const isActive = wl.id === activeWatchlistId;
-
-              return (
-                <div key={wl.id} className="inline-flex items-center flex-shrink-0 bg-[#181B20] rounded-xl border border-[#232731]">
-                  <button
-                    onClick={() => setActiveWatchlistId(wl.id)}
-                    className={`text-xs px-3 sm:px-3.5 py-1.5 rounded-l-xl font-semibold transition whitespace-nowrap flex items-center gap-2 ${
-                      isActive
-                        ? "bg-[#00D09C]/15 text-[#00D09C]"
-                        : "text-slate-400 hover:text-white"
-                    }`}
-                  >
-                    <span>{wl.name}</span>
-                    <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-[#12151B] text-slate-500">
-                      {wl.symbols ? wl.symbols.length : 0}
-                    </span>
-                  </button>
-
-                  {isActive && (
-                    <div className="flex items-center border-l border-[#262B34] pr-1 bg-[#181B20] rounded-r-xl">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setRenameInputValue(wl.name);
-                          setIsRenameOpen(true);
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-[#00D09C] hover:bg-[#252B37] rounded transition"
-                        title="Rename Watchlist"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteWatchlist(wl.id)}
-                        className="p-1.5 text-slate-400 hover:text-[#EB5B56] hover:bg-[#252B37] rounded transition"
-                        title="Delete Watchlist"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
+        {/* Top Actions: Mark As Seen / Undo & Add Stock */}
+        <div className="flex items-center space-x-3">
+          {telemetry.has_undo ? (
             <button
-              onClick={() => {
-                setNewWlName("");
-                setIsCreateWlOpen(true);
-              }}
-              className="text-xs px-3 sm:px-3.5 py-1.5 rounded-xl text-slate-400 hover:text-[#00D09C] hover:bg-[#181B20] border border-dashed border-[#2C313E] transition flex items-center gap-1.5 whitespace-nowrap flex-shrink-0"
+              onClick={handleUndoSeen}
+              title="Restore prior session baseline"
+              className="px-4 py-2 rounded-lg bg-amber-500/20 border border-amber-500/40 text-amber-400 font-medium text-sm hover:bg-amber-500/30 transition flex items-center gap-1.5"
             >
-              <Plus className="w-3.5 h-3.5" /> New Watchlist
+              ↺ Undo Reset
             </button>
-          </div>
+          ) : (
+            <button
+              onClick={handleMarkSeen}
+              title="Reset drift to ₹0.00"
+              className="px-4 py-2 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 font-medium text-sm hover:bg-gray-700 hover:text-white transition flex items-center gap-1.5"
+            >
+              ✓ Mark All As Seen
+            </button>
+          )}
+
+          <button
+            onClick={() => setIsAddOpen(true)}
+            className="px-4 py-2 rounded-lg bg-emerald-500 text-gray-950 font-semibold text-sm hover:bg-emerald-400 transition"
+          >
+            + Add Stock
+          </button>
         </div>
       </header>
 
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-6 sm:space-y-9">
-        {!dashboard ? (
-          <div className="space-y-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              {[...Array(4)].map((_, i) => (
-                <div key={i} className="h-32 bg-[#141820] border border-[#232731] rounded-2xl animate-pulse" />
-              ))}
-            </div>
-            <div className="h-64 bg-[#141820] border border-[#232731] rounded-2xl animate-pulse" />
-          </div>
-        ) : allStocks.length === 0 ? (
-          <div className="text-center py-20 sm:py-24 px-4 bg-[#141820] border border-dashed border-[#262B34] rounded-2xl">
-            <Eye className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-            <p className="text-slate-300 font-medium text-sm">
-              "{activeWatchlist?.name}" has no tracked stocks.
-            </p>
-            <p className="text-slate-500 text-xs mt-1">Add equities from the Master Universe to track drift.</p>
+      <main className="max-w-7xl mx-auto mt-6">
+        {/* Watchlist Tabs */}
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center space-x-2 overflow-x-auto pb-2">
+            {watchlists.map(wl => (
+              <button
+                key={wl.id}
+                onClick={() => setActiveId(wl.id)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 ${
+                  wl.id === activeId
+                    ? "bg-gray-800 text-emerald-400 border border-emerald-500/40"
+                    : "bg-[#161b22] text-gray-400 border border-transparent hover:text-gray-200"
+                }`}
+              >
+                <span>{wl.name}</span>
+                <span className="text-xs px-1.5 py-0.2 bg-gray-900 rounded-full text-gray-400">
+                  {wl.count}
+                </span>
+              </button>
+            ))}
             <button
-              onClick={() => setIsAddStockOpen(true)}
-              className="mt-4 inline-flex items-center gap-1.5 text-xs font-bold text-[#00D09C] hover:underline"
+              onClick={() => setIsNewWlOpen(true)}
+              className="px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-white bg-[#161b22] hover:bg-gray-800 transition"
             >
-              <Plus className="w-3.5 h-3.5" /> Add Stock to {activeWatchlist?.name}
+              + New Watchlist
             </button>
           </div>
-        ) : (
-          <>
-            {/* Top Summaries */}
-            <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="bg-[#181B20] border border-[#262B34] rounded-2xl p-4 sm:p-5 flex flex-col justify-between hover:border-[#353C49] transition shadow-sm">
-                <div>
-                  <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-                    <span>Portfolio Absence Drift</span>
-                    <Activity className="w-4 h-4 text-emerald-400" />
-                  </div>
-                  <div className="mt-3 flex items-baseline gap-2">
-                    <span className={`text-xl sm:text-2xl font-bold font-mono tracking-tight ${totalHeldImpact >= 0 ? "text-[#00D09C]" : "text-[#EB5B56]"}`}>
-                      {totalHeldImpact >= 0 ? "+" : "-"}₹{Math.abs(totalHeldImpact).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                    </span>
-                    <span className="text-[11px] text-slate-400">P&L shift</span>
-                  </div>
+
+          {/* Inline Rename / Delete Tab */}
+          <div className="flex items-center space-x-2">
+            {isEditing ? (
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={editName}
+                  onChange={(e) => setEditName(e.target.value)}
+                  className="bg-gray-900 border border-gray-700 text-sm px-2 py-1 rounded text-white"
+                />
+                <button onClick={handleRename} className="text-xs text-emerald-400 hover:underline">Save</button>
+                <button onClick={() => setIsEditing(false)} className="text-xs text-gray-400">Cancel</button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 text-sm text-gray-400">
+                <button onClick={() => setIsEditing(true)} className="hover:text-white">✏️</button>
+                {watchlists.length > 1 && (
+                  <button onClick={handleDeleteWatchlist} className="hover:text-red-400">🗑️</button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Top 4 Telemetry Metrics */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+          <div className="bg-[#12161f] border border-gray-800/80 p-5 rounded-xl">
+            <div className="text-xs text-gray-400 mb-1">Portfolio Absence Drift</div>
+            <div className={`text-2xl font-bold ${telemetry.portfolio_absence_drift >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+              {telemetry.portfolio_absence_drift >= 0 ? "+" : ""}₹{telemetry.portfolio_absence_drift.toFixed(2)}
+            </div>
+            <div className="text-xs text-gray-500 mt-2">
+              Calculated across {telemetry.held_count} held assets in this view.
+            </div>
+          </div>
+
+          <div className="bg-[#12161f] border border-gray-800/80 p-5 rounded-xl">
+            <div className="text-xs text-gray-400 mb-1">Absence Delta Leader</div>
+            <div className="text-2xl font-bold text-white flex items-center justify-between">
+              <span>{telemetry.leader_symbol}</span>
+              <span className={`text-base font-semibold ${telemetry.leader_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                {telemetry.leader_pct >= 0 ? "+" : ""}{telemetry.leader_pct.toFixed(2)}%
+              </span>
+            </div>
+            <div className="text-xs text-gray-500 mt-2">Highest divergence against your baseline.</div>
+          </div>
+
+          <div className="bg-[#12161f] border border-gray-800/80 p-5 rounded-xl">
+            <div className="text-xs text-gray-400 mb-1">Active Behavioral Flags</div>
+            <div className="flex items-center gap-4 text-base font-bold mt-1">
+              <div><span className="text-emerald-400">{telemetry.breakout_count}</span> <span className="text-xs text-gray-400 font-normal">BREAKOUT</span></div>
+              <div><span className="text-amber-400">{telemetry.fading_count}</span> <span className="text-xs text-gray-400 font-normal">FADING</span></div>
+              <div><span className="text-rose-400">{telemetry.drag_count}</span> <span className="text-xs text-gray-400 font-normal">DRAG</span></div>
+            </div>
+            <div className="text-xs text-gray-500 mt-2">Automated flags on volume & price velocity.</div>
+          </div>
+
+          <div className="bg-[#12161f] border border-gray-800/80 p-5 rounded-xl">
+            <div className="text-xs text-gray-400 mb-1">Watchlist Coverage</div>
+            <div className="text-2xl font-bold text-white">
+              {telemetry.sector_count} <span className="text-sm font-normal text-gray-400">sectors</span>
+            </div>
+            <div className="text-xs text-gray-500 mt-2">{telemetry.stock_count} tracked stocks in this list.</div>
+          </div>
+        </div>
+
+        {/* Sectors & Stock Grid */}
+        <div className="space-y-8">
+          {sectors.map((sec) => (
+            <div key={sec.sector} className="bg-[#12161f]/50 border border-gray-800/60 rounded-xl p-5">
+              {/* Sector Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 mb-4 border-b border-gray-800/60 gap-2">
+                <div className="flex items-center gap-3">
+                  <span className="text-base font-bold tracking-wide text-white">{sec.sector}</span>
+                  <span className={`text-xs px-2 py-0.5 rounded font-semibold ${sec.avg_delta >= 0 ? "bg-emerald-500/10 text-emerald-400" : "bg-rose-500/10 text-rose-400"}`}>
+                    {sec.avg_delta >= 0 ? "+" : ""}{sec.avg_delta.toFixed(2)}%
+                  </span>
                 </div>
-                <div className="mt-4 pt-3 border-t border-[#232731] text-[11px] text-slate-400">
-                  Calculated across <span className="text-white font-semibold">{heldStockCount} held assets</span> in this watchlist.
+                <div className="text-xs text-gray-400 italic">
+                  💡 {sec.commentary}
                 </div>
               </div>
 
-              <div className="bg-[#181B20] border border-[#262B34] rounded-2xl p-4 sm:p-5 flex flex-col justify-between hover:border-[#353C49] transition shadow-sm">
-                <div>
-                  <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-                    <span>Absence Delta Leader</span>
-                    <Award className="w-4 h-4 text-[#00D09C]" />
-                  </div>
-                  <div className="mt-3 flex items-baseline justify-between">
+              {/* Stock Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {sec.stocks.map((stock) => (
+                  <div
+                    key={stock.symbol}
+                    className="bg-[#161b24] border border-gray-800/90 hover:border-gray-700 transition rounded-xl p-4 flex flex-col justify-between relative group"
+                  >
                     <div>
-                      <span className="text-base sm:text-lg font-bold text-white font-mono">{bestPerformer?.symbol || "—"}</span>
-                      <p className="text-[11px] text-slate-400 line-clamp-1">{bestPerformer?.name || "No assets"}</p>
-                    </div>
-                    <span className={`text-sm font-bold font-mono ${(bestPerformer?.delta_pct || 0) >= 0 ? "text-[#00D09C]" : "text-[#EB5B56]"}`}>
-                      {(bestPerformer?.delta_pct || 0) >= 0 ? "+" : ""}{(bestPerformer?.delta_pct || 0).toFixed(2)}%
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-4 pt-3 border-t border-[#232731] text-[11px] text-slate-400">
-                  Highest divergence from snapshot anchor ({bestPerformer?.sector || "General"}).
-                </div>
-              </div>
-
-              <div className="bg-[#181B20] border border-[#262B34] rounded-2xl p-4 sm:p-5 flex flex-col justify-between hover:border-[#353C49] transition shadow-sm">
-                <div>
-                  <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-                    <span>Active Behavioral Flags</span>
-                    <Compass className="w-4 h-4 text-amber-400" />
-                  </div>
-                  <div className="mt-3 flex items-center gap-3">
-                    <div>
-                      <span className="text-lg sm:text-xl font-bold font-mono text-emerald-400">{breakoutCount}</span>
-                      <p className="text-[10px] text-slate-400 uppercase font-semibold">Breakout</p>
-                    </div>
-                    <div className="h-6 w-px bg-[#262B34]" />
-                    <div>
-                      <span className="text-lg sm:text-xl font-bold font-mono text-amber-400">{fadingCount}</span>
-                      <p className="text-[10px] text-slate-400 uppercase font-semibold">Fading</p>
-                    </div>
-                    <div className="h-6 w-px bg-[#262B34]" />
-                    <div>
-                      <span className="text-lg sm:text-xl font-bold font-mono text-rose-400">{dragCount}</span>
-                      <p className="text-[10px] text-slate-400 uppercase font-semibold">Drag</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-4 pt-3 border-t border-[#232731] text-[11px] text-slate-400">
-                  Automated flags evaluated on volume & intraday momentum.
-                </div>
-              </div>
-
-              <div className="bg-[#181B20] border border-[#262B34] rounded-2xl p-4 sm:p-5 flex flex-col justify-between hover:border-[#353C49] transition shadow-sm">
-                <div>
-                  <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
-                    <span>Watchlist Coverage</span>
-                    <Layers className="w-4 h-4 text-purple-400" />
-                  </div>
-                  <div className="mt-3 flex items-baseline justify-between">
-                    <span className="text-xl sm:text-2xl font-bold font-mono text-white">
-                      {Object.keys(sectors).length}
-                    </span>
-                    <span className="text-xs text-slate-400 font-mono">
-                      {allStocks.length} tracked stocks
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-4 pt-3 border-t border-[#232731] text-[11px] text-slate-400">
-                  Active view: <span className="text-[#00D09C] font-semibold">{activeWatchlist?.name}</span>
-                </div>
-              </div>
-            </section>
-
-            {/* Sectors and Stock Cards */}
-            {Object.entries(sectors).map(([sectorName, group]) => {
-              const isSectorPos = (group.sector_delta_avg || 0) >= 0;
-              const narrative = getSectorNarrative(group);
-
-              return (
-                <section key={sectorName} className="space-y-3 bg-[#13161C] p-4 sm:p-5 rounded-2xl border border-[#202530]">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2">
-                    <div className="flex items-center gap-3">
-                      <h2 className="text-sm font-bold text-white uppercase tracking-wider">
-                        {sectorName}
-                      </h2>
-                      <span
-                        className={`text-xs px-2.5 py-0.5 rounded-full font-mono font-bold ${
-                          isSectorPos 
-                            ? "bg-[#00D09C]/15 text-[#00D09C] border border-[#00D09C]/30" 
-                            : "bg-[#EB5B56]/15 text-[#EB5B56] border border-[#EB5B56]/30"
-                        }`}
-                      >
-                        {isSectorPos ? "+" : ""}{(group.sector_delta_avg || 0).toFixed(2)}%
-                      </span>
-                    </div>
-                    <span className="text-xs text-slate-400">
-                      {group.stocks.length} tracked
-                    </span>
-                  </div>
-
-                  <div className={`flex items-start gap-2.5 px-3.5 py-2.5 rounded-xl border text-xs leading-relaxed ${
-                    narrative.tone === "positive" 
-                      ? "bg-[#00D09C]/5 border-[#00D09C]/20 text-[#25D7AA]" 
-                      : narrative.tone === "negative"
-                      ? "bg-[#EB5B56]/5 border-[#EB5B56]/20 text-[#F87171]"
-                      : "bg-[#1A1E26] border-[#29303D] text-slate-400"
-                  }`}>
-                    <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                    <span>{narrative.text}</span>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pt-2">
-                    {group.stocks.map((stock) => {
-                      const isStockPos = (stock.delta_pct || 0) >= 0;
-                      const priceDiff = stock.ltp - stock.baseline;
-                      const isZero = Math.abs(priceDiff) < 0.05;
-                      const effectiveBadge = getEffectiveBadge(stock);
-
-                      return (
-                        <div
-                          key={stock.symbol}
-                          className="bg-[#181B20] border border-[#262B34] hover:border-[#353C49] rounded-2xl p-4 sm:p-5 relative group transition duration-150 flex flex-col justify-between shadow-sm hover:shadow-xl hover:shadow-black/20"
-                        >
-                          <div>
-                            <div className="flex justify-between items-start">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-white text-sm tracking-wide">
-                                    {stock.symbol}
-                                  </span>
-                                  {stock.is_held && (
-                                    <span className="text-[9px] bg-[#222938] text-[#818CF8] px-2 py-0.5 rounded-full font-bold border border-[#818CF8]/30">
-                                      HELD
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-xs text-slate-400 truncate max-w-[200px] mt-0.5">
-                                  {stock.name}
-                                </p>
-                              </div>
-                              <button
-                                onClick={() => handleRemoveStock(stock.symbol)}
-                                className="text-slate-600 hover:text-[#EB5B56] transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 p-1 rounded-md hover:bg-[#262B34]"
-                                title="Untrack from this watchlist"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-
-                            <div className="flex items-baseline justify-between mt-4">
-                              <span className="text-xl sm:text-2xl font-bold font-mono tracking-tight text-white">
-                                ₹{Number(stock.ltp).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                              </span>
-                              <div className="flex items-center gap-1 font-mono text-xs font-bold">
-                                {isStockPos ? <TrendingUp className="w-4 h-4 text-[#00D09C]" /> : <TrendingDown className="w-4 h-4 text-[#EB5B56]" />}
-                                <span className={isStockPos ? "text-[#00D09C]" : "text-[#EB5B56]"}>
-                                  {isStockPos ? "+" : ""}{(stock.delta_pct || 0).toFixed(2)}%
-                                </span>
-                              </div>
-                            </div>
-
-                            <div className="mt-3.5 bg-[#12151B] border border-[#232731] rounded-xl p-2.5 space-y-1.5">
-                              <div className="flex items-center justify-between text-[11px] font-mono">
-                                <span className="text-slate-400">
-                                  Seen: <span className="text-slate-200">₹{Number(stock.baseline).toFixed(2)}</span>
-                                </span>
-                                <ArrowRight className="w-3 h-3 text-slate-600" />
-                                <span className="text-slate-400">
-                                  Now: <span className="text-white font-semibold">₹{Number(stock.ltp).toFixed(2)}</span>
-                                </span>
-                              </div>
-
-                              <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-[#1C2028]">
-                                <span className="text-slate-500">Since Last Visit:</span>
-                                <span
-                                  className={`font-mono font-bold ${
-                                    isZero ? "text-slate-400" : isStockPos ? "text-[#00D09C]" : "text-[#EB5B56]"
-                                  }`}
-                                >
-                                  {isStockPos && !isZero ? "+" : ""}₹{priceDiff.toFixed(2)} ({isStockPos && !isZero ? "+" : ""}{(stock.delta_pct || 0).toFixed(2)}%)
-                                </span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="mt-4 pt-3 border-t border-[#232731] flex items-center justify-between text-xs">
-                            <div>
-                              {effectiveBadge ? (
-                                <span
-                                  className={`font-bold px-2.5 py-0.5 rounded-full text-[10px] tracking-wide uppercase ${
-                                    effectiveBadge === "BREAKOUT"
-                                      ? "bg-[#00D09C]/15 text-[#00D09C] border border-[#00D09C]/35"
-                                      : effectiveBadge === "MOMENTUM FADING"
-                                      ? "bg-[#F59E0B]/15 text-[#FBBF24] border border-[#F59E0B]/35"
-                                      : "bg-[#EB5B56]/15 text-[#EB5B56] border border-[#EB5B56]/35"
-                                  }`}
-                                >
-                                  {effectiveBadge}
-                                </span>
-                              ) : (
-                                <span className="text-slate-500 text-[11px]">Rangebound</span>
-                              )}
-                            </div>
-
-                            {stock.is_held && stock.pnl_impact !== undefined && (
-                              <span className={`font-mono font-semibold ${stock.pnl_impact >= 0 ? "text-[#00D09C]" : "text-[#EB5B56]"}`}>
-                                {stock.pnl_impact >= 0 ? "+" : "-"}₹{Math.abs(stock.pnl_impact).toLocaleString("en-IN", { minimumFractionDigits: 2 })} impact
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-base text-white">{stock.symbol}</span>
+                            {stock.held && (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 bg-blue-500/20 text-blue-400 border border-blue-500/30 rounded">
+                                HELD ({stock.shares})
                               </span>
                             )}
                           </div>
+                          <div className="text-xs text-gray-400">{stock.name}</div>
                         </div>
-                      );
-                    })}
+                        <button
+                          onClick={() => handleDeleteStock(stock.symbol)}
+                          className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-rose-400 transition text-sm"
+                          title="Remove stock"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      {/* LTP */}
+                      <div className="mt-3 flex items-baseline justify-between">
+                        <span className="text-2xl font-black text-white">
+                          ₹{stock.now_price.toFixed(2)}
+                        </span>
+                        <span className={`text-sm font-bold ${stock.delta_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                          {stock.delta_pct >= 0 ? "↗" : "↘"} {stock.delta_pct >= 0 ? "+" : ""}{stock.delta_pct.toFixed(2)}%
+                        </span>
+                      </div>
+
+                      {/* Seen vs Now Baseline Strip */}
+                      <div className="mt-3 p-2 bg-[#0e1218] rounded-lg text-xs space-y-1">
+                        <div className="flex justify-between text-gray-400">
+                          <span>Seen: ₹{stock.seen_price.toFixed(2)}</span>
+                          <span>Now: ₹{stock.now_price.toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between font-medium">
+                          <span className="text-gray-400">Since Last Visit:</span>
+                          <span className={stock.delta_val >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                            {stock.delta_val >= 0 ? "+" : ""}₹{stock.delta_val.toFixed(2)} ({stock.delta_pct >= 0 ? "+" : ""}{stock.delta_pct.toFixed(2)}%)
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Behavioral Flag Badge & P&L Impact */}
+                    <div className="mt-4 pt-2 border-t border-gray-800 flex items-center justify-between">
+                      <span className={`text-[11px] font-bold px-2 py-0.5 rounded tracking-wide ${
+                        stock.flag === "BREAKOUT"
+                          ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
+                          : stock.flag === "DRAG"
+                          ? "bg-rose-500/20 text-rose-400 border border-rose-500/30"
+                          : stock.flag === "FADING"
+                          ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                          : "text-gray-500"
+                      }`}>
+                        {stock.flag}
+                      </span>
+
+                      {stock.held && (
+                        <span className={`text-xs font-semibold ${stock.impact_val >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+                          {stock.impact_val >= 0 ? "+" : ""}₹{stock.impact_val.toFixed(2)} P&L
+                        </span>
+                      )}
+                    </div>
                   </div>
-                </section>
-              );
-            })}
-          </>
-        )}
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
       </main>
 
-      {/* RENAME MODAL */}
-      {isRenameOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#181B20] border border-[#2D3340] rounded-3xl w-full max-w-sm p-6 relative shadow-2xl">
-            <h3 className="font-bold text-base text-white mb-4">Rename Watchlist</h3>
-            <form onSubmit={handleRenameSubmit} className="space-y-4">
+      {/* Modal: Add Stock */}
+      {isAddOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#161b24] border border-gray-700 p-6 rounded-xl max-w-md w-full">
+            <h3 className="text-lg font-bold text-white mb-4">Add Stock to Watchlist</h3>
+            <form onSubmit={handleAddStock} className="space-y-4">
               <div>
-                <label className="block text-slate-400 text-xs mb-1.5 font-semibold">New Name</label>
+                <label className="text-xs text-gray-400 block mb-1">Stock Ticker (e.g. RELIANCE, INFY, TATATECH)</label>
                 <input
                   type="text"
                   required
-                  value={renameInputValue}
-                  onChange={(e) => setRenameInputValue(e.target.value)}
-                  className="w-full bg-[#101216] border border-[#2E3442] focus:border-[#00D09C] rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
-                  autoFocus
+                  value={newSym}
+                  onChange={(e) => setNewSym(e.target.value)}
+                  placeholder="Enter symbol"
+                  className="w-full bg-[#0e1218] border border-gray-700 rounded-lg px-3 py-2 text-white uppercase text-sm"
                 />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsRenameOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 text-xs font-bold bg-[#00D09C] hover:bg-[#00B98A] text-[#0F1115] rounded-xl font-mono"
-                >
-                  Save Changes
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* CREATE WATCHLIST MODAL */}
-      {isCreateWlOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#181B20] border border-[#2D3340] rounded-3xl w-full max-w-sm p-6 relative shadow-2xl">
-            <h3 className="font-bold text-base text-white mb-4">Create New Watchlist</h3>
-            <form onSubmit={handleCreateWatchlist} className="space-y-4">
-              <div>
-                <label className="block text-slate-400 text-xs mb-1.5 font-semibold">Watchlist Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. High Growth Tech, Bluechips..."
-                  value={newWlName}
-                  onChange={(e) => setNewWlName(e.target.value)}
-                  className="w-full bg-[#101216] border border-[#2E3442] focus:border-[#00D09C] rounded-xl px-3.5 py-2.5 text-xs text-white outline-none"
-                  autoFocus
-                />
-              </div>
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setIsCreateWlOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-slate-400 hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 text-xs font-bold bg-[#00D09C] hover:bg-[#00B98A] text-[#0F1115] rounded-xl font-mono"
-                >
-                  Create
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ADD STOCK MODAL */}
-      {isAddStockOpen && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-[#181B20] border border-[#2D3340] rounded-3xl w-full max-w-md p-5 sm:p-6 relative shadow-2xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center pb-4 border-b border-[#262B34]">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 rounded-full bg-[#00D09C]" />
-                <h3 className="font-bold text-sm sm:text-base text-white">Add Stock to "{activeWatchlist?.name}"</h3>
-              </div>
-              <button onClick={() => setIsAddStockOpen(false)} className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-[#232731]">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <div className="mt-5 relative" ref={searchContainerRef}>
-              <label className="block text-slate-300 text-xs font-semibold mb-1.5">Search Master Stock Universe</label>
-              <div className="relative">
-                <Search className="w-4 h-4 absolute left-3.5 top-3 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Type symbol (e.g. SUN, TATA, INFY)..."
-                  value={searchQuery}
-                  onChange={(e) => handleSearchChange(e.target.value)}
-                  className="w-full bg-[#101216] border border-[#2E3442] focus:border-[#00D09C] rounded-xl pl-10 pr-24 py-2.5 text-xs text-white outline-none"
-                />
-                {isSearching && <div className="absolute right-3.5 top-2.5 text-[10px] text-[#00D09C] animate-pulse font-mono">Searching...</div>}
-              </div>
-
-              {searchResults.length > 0 && (
-                <div className="absolute top-full left-0 right-0 mt-1.5 bg-[#1C2027] border border-[#2D3340] rounded-xl shadow-2xl z-50 max-h-56 overflow-y-auto divide-y divide-[#262B34]">
-                  {searchResults.map((item) => (
-                    <button
-                      key={item.symbol}
-                      type="button"
-                      onClick={() => handleSelectStock(item)}
-                      className="w-full text-left px-4 py-2.5 hover:bg-[#00D09C]/10 transition flex items-center justify-between"
-                    >
-                      <div>
-                        <span className="font-bold text-white text-xs font-mono">{item.symbol}</span>
-                        <p className="text-[11px] text-slate-400">{item.name}</p>
-                      </div>
-                      <div className="text-right">
-                        {item.ltp > 0 && <span className="text-xs font-semibold text-[#00D09C] font-mono block">₹{item.ltp}</span>}
-                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#12151B] text-slate-300">{item.sector || "Diversified"}</span>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <form onSubmit={handleFormSubmit} className="mt-4 space-y-3.5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 text-[11px] mb-1">Symbol</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.symbol}
-                    onChange={(e) => setFormData({ ...formData, symbol: e.target.value.toUpperCase() })}
-                    className="w-full bg-[#101216] border border-[#2E3442] rounded-xl px-3 py-2 text-xs text-white outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 text-[11px] mb-1">Sector</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.sector}
-                    onChange={(e) => setFormData({ ...formData, sector: e.target.value })}
-                    className="w-full bg-[#101216] border border-[#2E3442] rounded-xl px-3 py-2 text-xs text-white outline-none"
-                  />
-                </div>
               </div>
 
               <div>
-                <label className="block text-slate-400 text-[11px] mb-1">Company Name</label>
-                <input
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full bg-[#101216] border border-[#2E3442] rounded-xl px-3 py-2 text-xs text-white outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-slate-400 text-[11px] mb-1">Current LTP (₹)</label>
-                  <input
-                    type="number"
-                    step="0.05"
-                    required
-                    value={formData.ltp}
-                    onChange={(e) => setFormData({ ...formData, ltp: e.target.value })}
-                    className="w-full bg-[#101216] border border-[#2E3442] rounded-xl px-3 py-2 text-xs text-white outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-400 text-[11px] mb-1">Baseline Ref (₹)</label>
-                  <input
-                    type="number"
-                    step="0.05"
-                    value={formData.baseline}
-                    onChange={(e) => setFormData({ ...formData, baseline: e.target.value })}
-                    className="w-full bg-[#101216] border border-[#2E3442] rounded-xl px-3 py-2 text-xs text-white outline-none"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-slate-400 text-[11px] mb-1">Volume Behavior</label>
+                <label className="text-xs text-gray-400 block mb-1">Volume Profile</label>
                 <select
-                  value={formData.volume_behavior}
-                  onChange={(e) => setFormData({ ...formData, volume_behavior: e.target.value })}
-                  className="w-full bg-[#101216] border border-[#2E3442] rounded-xl px-3 py-2 text-xs text-white outline-none"
+                  value={volType}
+                  onChange={(e) => setVolType(e.target.value)}
+                  className="w-full bg-[#0e1218] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
                 >
-                  <option>Normal Volume (1.0x avg - Rangebound)</option>
-                  <option>Surge Volume (2.5x avg - triggers Breakout)</option>
-                  <option>Drying Volume (0.5x avg - triggers Momentum Fading)</option>
+                  <option value="Surge Volume">Surge Volume (Breakout Trigger)</option>
+                  <option value="Normal">Normal Volume</option>
+                  <option value="Drying">Drying (Fading Trigger)</option>
                 </select>
               </div>
 
-              <div className="pt-2">
-                <label className="flex items-center gap-2 cursor-pointer text-xs text-slate-300">
-                  <input
-                    type="checkbox"
-                    checked={formData.is_held}
-                    onChange={(e) => setFormData({ ...formData, is_held: e.target.checked })}
-                    className="rounded bg-[#101216] border-[#2E3442] text-[#00D09C] focus:ring-0"
-                  />
-                  I own this stock (Portfolio)
-                </label>
-                {formData.is_held && (
-                  <input
-                    type="number"
-                    placeholder="Quantity of shares owned"
-                    value={formData.quantity || ""}
-                    onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                    className="mt-2 w-full bg-[#101216] border border-[#2E3442] rounded-xl px-3 py-1.5 text-xs text-white outline-none"
-                  />
-                )}
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="heldCheck"
+                  checked={isHeld}
+                  onChange={(e) => setIsHeld(e.target.checked)}
+                  className="rounded bg-gray-900 border-gray-700"
+                />
+                <label htmlFor="heldCheck" className="text-sm text-gray-300">I own this stock (Calculate P&L)</label>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-4 border-t border-[#262B34]">
-                <button type="button" onClick={() => setIsAddStockOpen(false)} className="px-4 py-2 text-xs text-slate-400 hover:text-white">Cancel</button>
-                <button type="submit" className="px-5 py-2.5 text-xs font-bold bg-[#00D09C] hover:bg-[#00B98A] text-[#0F1115] rounded-xl">Add to Watchlist</button>
+              {isHeld && (
+                <div>
+                  <label className="text-xs text-gray-400 block mb-1">Number of Shares</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={shares}
+                    onChange={(e) => setShares(e.target.value)}
+                    className="w-full bg-[#0e1218] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                  />
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setIsAddOpen(false)}
+                  className="px-4 py-2 rounded-lg bg-gray-800 text-gray-400 text-sm hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-emerald-500 text-gray-950 font-semibold text-sm hover:bg-emerald-400"
+                >
+                  Add Stock
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: New Watchlist */}
+      {isNewWlOpen && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center p-4 z-50">
+          <div className="bg-[#161b24] border border-gray-700 p-6 rounded-xl max-w-sm w-full">
+            <h3 className="text-lg font-bold text-white mb-4">Create New Watchlist</h3>
+            <form onSubmit={handleCreateWatchlist} className="space-y-4">
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Watchlist Name</label>
+                <input
+                  type="text"
+                  required
+                  value={newWlName}
+                  onChange={(e) => setNewWlName(e.target.value)}
+                  placeholder="e.g. High Beta, Tech Picks"
+                  className="w-full bg-[#0e1218] border border-gray-700 rounded-lg px-3 py-2 text-white text-sm"
+                />
+              </div>
+              <div className="flex justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setIsNewWlOpen(false)}
+                  className="px-4 py-2 rounded-lg bg-gray-800 text-gray-400 text-sm hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 rounded-lg bg-emerald-500 text-gray-950 font-semibold text-sm hover:bg-emerald-400"
+                >
+                  Create
+                </button>
               </div>
             </form>
           </div>

@@ -1,326 +1,340 @@
 import os
-import re
-import time
-import certifi
-from typing import Optional, List
+import random
+from datetime import datetime
+from typing import Dict, List, Optional
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from pymongo import MongoClient
 from bson import ObjectId
-from dotenv import load_dotenv
 
-from gateway import fetch_telemetry
-from engine import synthesize_dashboard
-
-load_dotenv()
-
-MONGO_URI = os.getenv("MONGO_URI")
-DB_NAME = os.getenv("DB_NAME", "deltawatch")
-
-client = MongoClient(MONGO_URI, tlsCAFile=certifi.where())
-db = client[DB_NAME]
-
-app = FastAPI(title="DeltaWatch Backend")
-
-origins = [
-    "https://smart-stock-watchlist-ui.onrender.com",
-    "http://localhost:5173",
-    "http://localhost:3000",
-    "http://127.0.0.1:5173",
-    "http://127.0.0.1:3000",
-]
+app = FastAPI(title="GrowwDelta Backend")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ----------------- IN-MEMORY TTL CACHE -----------------
-DASHBOARD_CACHE = {}
-CACHE_TTL = 15  # seconds
+# MongoDB Configuration
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+DB_NAME = os.getenv("DB_NAME", "deltawatch")
 
-@app.get("/healthz")
-def health_check():
-    return {"status": "alive"}
+client = MongoClient(MONGO_URI)
+db = client[DB_NAME]
 
-# ----------------- DATA MODELS -----------------
-class WatchlistCreate(BaseModel):
-    name: str
+# In-Memory Dynamic Price State Engine
+STOCK_UNIVERSE = {
+    "TATATECH": {"name": "Tata Technologies", "sector": "IT", "base_price": 950.00},
+    "SUNPHARMA": {"name": "Sun Pharma. Inds.", "sector": "PHARMA", "base_price": 1895.00},
+    "BALAJEE": {"name": "Shree Tirup.Bal.Agro", "sector": "DIVERSIFIED", "base_price": 72.50},
+    "HATSUN": {"name": "Hatsun Agro Prod", "sector": "CONSUMER", "base_price": 1085.00},
+    "HDFCEQUAL": {"name": "HDFC Nifty50 Equal Wt", "sector": "FINANCE", "base_price": 142.30},
+    "AFCONS": {"name": "Afcons Infrastruct.", "sector": "INFRA", "base_price": 485.00},
+    "TATAGOLD": {"name": "Tata Gold ETF", "sector": "COMMODITIES", "base_price": 18.40},
+    "RELIANCE": {"name": "Reliance Industries", "sector": "ENERGY", "base_price": 2980.00},
+    "INFY": {"name": "Infosys Ltd", "sector": "IT", "base_price": 1845.00},
+    "HDFCBANK": {"name": "HDFC Bank Ltd", "sector": "FINANCE", "base_price": 1650.00},
+}
 
-class WatchlistRename(BaseModel):
-    name: str
+# Live dynamic price cache (simulates continuous live market fluctuations)
+LIVE_PRICES: Dict[str, float] = {}
 
-class AddStockPayload(BaseModel):
-    watchlist_id: str
-    symbol: str
-    name: str
-    sector: str
-    ltp: float
-    baseline: Optional[float] = None
-    volume_behavior: str
-    is_held: bool
-    quantity: int
+def get_live_price(symbol: str) -> float:
+    base = STOCK_UNIVERSE.get(symbol, {}).get("base_price", 500.00)
+    if symbol not in LIVE_PRICES:
+        LIVE_PRICES[symbol] = base
 
-# ----------------- INITIAL SEED HELPER -----------------
-def get_or_create_default_watchlist(user_id: str = "demo_user"):
-    wl = db.user_watchlists.find_one({"user_id": user_id, "is_default": True})
-    if not wl:
-        existing_items = list(db.watchlists.find({"is_active": True}))
-        symbols = [item["symbol"].strip().upper() for item in existing_items]
-        if not symbols:
-            symbols = ["TCS", "INFY", "HDFCBANK", "ICICIBANK", "SBIN", "TATAMOTORS", "RELIANCE"]
+    # Small simulated step drift (-0.35% to +0.35%) per tick
+    step_pct = random.uniform(-0.0035, 0.0035)
+    new_price = round(LIVE_PRICES[symbol] * (1 + step_pct), 2)
+    # Prevent drifting more than 5% away from true base
+    if abs(new_price - base) / base > 0.05:
+        new_price = round(base * (1 + random.uniform(-0.01, 0.01)), 2)
 
-        inserted = db.user_watchlists.insert_one({
-            "user_id": user_id,
-            "name": "Primary Watchlist",
-            "is_default": True,
-            "symbols": symbols
+    LIVE_PRICES[symbol] = new_price
+    return new_price
+
+# Startup Database Seeding
+@app.on_event("startup")
+def seed_default_watchlist():
+    if db.watchlists.count_documents({}) == 0:
+        default_stocks = [
+            {"symbol": "TATATECH", "held": False, "shares": 0, "volume_type": "Surge Volume"},
+            {"symbol": "SUNPHARMA", "held": True, "shares": 10, "volume_type": "Normal"},
+            {"symbol": "BALAJEE", "held": True, "shares": 50, "volume_type": "Normal"},
+            {"symbol": "HATSUN", "held": False, "shares": 0, "volume_type": "Normal"},
+            {"symbol": "HDFCEQUAL", "held": False, "shares": 0, "volume_type": "Normal"},
+            {"symbol": "AFCONS", "held": False, "shares": 0, "volume_type": "Surge Volume"},
+            {"symbol": "TATAGOLD", "held": False, "shares": 0, "volume_type": "Normal"}
+        ]
+        
+        # Initialize snapshot baselines slightly below or above to show initial drift
+        initial_snapshots = {}
+        for s in default_stocks:
+            sym = s["symbol"]
+            current_p = get_live_price(sym)
+            # Create a 1.5% prior divergence so the dashboard looks active right away
+            prior_p = round(current_p * random.choice([0.985, 1.015]), 2)
+            initial_snapshots[sym] = {
+                "seen_price": prior_p,
+                "seen_at": datetime.utcnow().isoformat()
+            }
+
+        db.watchlists.insert_one({
+            "name": "Primary watchlist",
+            "stocks": default_stocks,
+            "snapshots": initial_snapshots,
+            "undo_snapshots": {}
         })
-        wl = db.user_watchlists.find_one({"_id": inserted.inserted_id})
-    return wl
 
-# ----------------- WATCHLIST CRUD ROUTES -----------------
+# Models
+class AddStockRequest(BaseModel):
+    symbol: str
+    held: bool = False
+    shares: int = 0
+    volume_type: str = "Normal"
 
+class CreateWatchlistRequest(BaseModel):
+    name: str
+
+class RenameWatchlistRequest(BaseModel):
+    name: str
+
+# Endpoints
 @app.get("/api/watchlists")
-def list_watchlists(user_id: str = "demo_user"):
-    get_or_create_default_watchlist(user_id)
-    watchlists = list(db.user_watchlists.find({"user_id": user_id}))
-    for w in watchlists:
-        w["id"] = str(w["_id"])
-        del w["_id"]
-    return watchlists
+def list_watchlists():
+    wls = list(db.watchlists.find())
+    return [{"id": str(w["_id"]), "name": w["name"], "count": len(w.get("stocks", []))} for w in wls]
 
 @app.post("/api/watchlists")
-def create_watchlist(payload: WatchlistCreate, user_id: str = "demo_user"):
-    name = payload.name.strip()
-    if not name:
-        raise HTTPException(status_code=400, detail="Name cannot be empty")
-    
-    doc = {
-        "user_id": user_id,
-        "name": name,
-        "is_default": False,
-        "symbols": []
+def create_watchlist(req: CreateWatchlistRequest):
+    new_wl = {
+        "name": req.name,
+        "stocks": [],
+        "snapshots": {},
+        "undo_snapshots": {}
     }
-    res = db.user_watchlists.insert_one(doc)
-    DASHBOARD_CACHE.clear()
-    return {"id": str(res.inserted_id), "name": name, "symbols": []}
+    res = db.watchlists.insert_one(new_wl)
+    return {"id": str(res.inserted_id), "name": req.name, "count": 0}
 
 @app.put("/api/watchlists/{watchlist_id}/rename")
-def rename_watchlist(watchlist_id: str, payload: WatchlistRename, user_id: str = "demo_user"):
-    new_name = payload.name.strip()
-    if not new_name:
-        raise HTTPException(status_code=400, detail="Name cannot be empty")
-    
-    try:
-        oid = ObjectId(watchlist_id)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid watchlist ID format")
-
-    res = db.user_watchlists.update_one(
-        {"_id": oid, "user_id": user_id},
-        {"$set": {"name": new_name}}
-    )
+def rename_watchlist(watchlist_id: str, req: RenameWatchlistRequest):
+    res = db.watchlists.update_one({"_id": ObjectId(watchlist_id)}, {"$set": {"name": req.name}})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Watchlist not found")
-
-    DASHBOARD_CACHE.clear()
-    return {"status": "success", "name": new_name}
-
-@app.delete("/api/watchlists/{watchlist_id}")
-def delete_watchlist(watchlist_id: str, user_id: str = "demo_user"):
-    try:
-        oid = ObjectId(watchlist_id)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid watchlist ID format")
-
-    target = db.user_watchlists.find_one({"_id": oid, "user_id": user_id})
-    if not target:
-        raise HTTPException(status_code=404, detail="Watchlist not found")
-    
-    total_count = db.user_watchlists.count_documents({"user_id": user_id})
-    if total_count <= 1:
-        raise HTTPException(status_code=400, detail="Cannot delete your only watchlist")
-    
-    db.user_watchlists.delete_one({"_id": oid, "user_id": user_id})
-    
-    if target.get("is_default"):
-        remaining = db.user_watchlists.find_one({"user_id": user_id})
-        if remaining:
-            db.user_watchlists.update_one({"_id": remaining["_id"]}, {"$set": {"is_default": True}})
-            
-    DASHBOARD_CACHE.clear()
     return {"status": "success"}
 
-# ----------------- DASHBOARD ROUTE -----------------
+@app.delete("/api/watchlists/{watchlist_id}")
+def delete_watchlist(watchlist_id: str):
+    if db.watchlists.count_documents({}) <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the only watchlist")
+    res = db.watchlists.delete_one({"_id": ObjectId(watchlist_id)})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+    return {"status": "success"}
 
-@app.get("/api/dashboard")
-def get_dashboard(watchlist_id: Optional[str] = None, user_id: str = "demo_user", _t: Optional[str] = None):
-    cache_key = f"{user_id}:{watchlist_id}"
-    now = time.time()
+@app.get("/api/watchlists/{watchlist_id}")
+def get_watchlist(watchlist_id: str):
+    wl = db.watchlists.find_one({"_id": ObjectId(watchlist_id)})
+    if not wl:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
 
-    if not _t and cache_key in DASHBOARD_CACHE:
-        cached_data, timestamp = DASHBOARD_CACHE[cache_key]
-        if now - timestamp < CACHE_TTL:
-            return cached_data
+    snapshots = wl.get("snapshots", {})
+    stocks_out = []
+    total_portfolio_drift = 0.0
+    held_count = 0
 
-    if watchlist_id and watchlist_id != "undefined":
-        try:
-            active_wl = db.user_watchlists.find_one({"_id": ObjectId(watchlist_id), "user_id": user_id})
-        except Exception:
-            active_wl = get_or_create_default_watchlist(user_id)
-    else:
-        active_wl = get_or_create_default_watchlist(user_id)
+    breakout_count = 0
+    fading_count = 0
+    drag_count = 0
 
-    if not active_wl:
-        return {"sectors": {}, "can_undo": False}
+    sectors = {}
 
-    active_symbols = active_wl.get("symbols", [])
+    for s in wl.get("stocks", []):
+        sym = s["symbol"]
+        meta = STOCK_UNIVERSE.get(sym, {"name": sym, "sector": "OTHERS", "base_price": 500.00})
+        
+        now_price = get_live_price(sym)
+        
+        # Read saved session baseline (fallback to now_price if never saved)
+        seen_price = snapshots.get(sym, {}).get("seen_price", now_price)
+        
+        delta_val = round(now_price - seen_price, 2)
+        delta_pct = round((delta_val / seen_price) * 100, 2) if seen_price > 0 else 0.0
 
-    gateway_data = fetch_telemetry()
-    dashboard_data = synthesize_dashboard(user_id, gateway_data, target_symbols=active_symbols)
+        # Behavioral heuristics
+        vol_type = s.get("volume_type", "Normal")
+        if delta_pct >= 1.0 and vol_type == "Surge Volume":
+            flag = "BREAKOUT"
+            breakout_count += 1
+        elif delta_pct <= -1.0:
+            flag = "DRAG"
+            drag_count += 1
+        elif delta_pct > 0 and vol_type == "Drying":
+            flag = "FADING"
+            fading_count += 1
+        else:
+            flag = "Rangebound"
 
-    snapshot_doc = db.user_view_snapshots.find_one({"user_id": user_id}) or {}
-    dashboard_data["can_undo"] = bool(snapshot_doc.get("previous_prices"))
-    dashboard_data["watchlist_id"] = str(active_wl["_id"])
-    dashboard_data["watchlist_name"] = active_wl["name"]
+        # Held asset P&L drift calculation
+        impact_val = 0.0
+        if s.get("held", False) and s.get("shares", 0) > 0:
+            held_count += 1
+            impact_val = round(delta_val * s.get("shares", 0), 2)
+            total_portfolio_drift += impact_val
 
-    DASHBOARD_CACHE[cache_key] = (dashboard_data, now)
-    return dashboard_data
+        stock_item = {
+            "symbol": sym,
+            "name": meta["name"],
+            "sector": meta["sector"],
+            "now_price": now_price,
+            "seen_price": seen_price,
+            "delta_val": delta_val,
+            "delta_pct": delta_pct,
+            "flag": flag,
+            "held": s.get("held", False),
+            "shares": s.get("shares", 0),
+            "impact_val": impact_val
+        }
+        stocks_out.append(stock_item)
 
-# ----------------- STOCKS CRUD -----------------
+        # Sector clustering
+        sec = meta["sector"]
+        if sec not in sectors:
+            sectors[sec] = []
+        sectors[sec].append(stock_item)
 
-@app.post("/api/stocks/add")
-def add_custom_stock(payload: AddStockPayload, user_id: str = "demo_user"):
-    sym = payload.symbol.upper().strip()
-    ltp = float(payload.ltp)
-    anchor_price = float(payload.baseline) if payload.baseline and payload.baseline > 0 else round(ltp * 0.985, 2)
+    # Absence leader
+    leader = max(stocks_out, key=lambda x: abs(x["delta_pct"])) if stocks_out else None
 
-    try:
-        oid = ObjectId(payload.watchlist_id)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid watchlist ID format")
+    # Sector commentary synthesis
+    sector_clusters = []
+    for sec_name, sec_stocks in sectors.items():
+        avg_delta = sum(st["delta_pct"] for st in sec_stocks) / len(sec_stocks)
+        breakouts = [st["symbol"] for st in sec_stocks if st["flag"] == "BREAKOUT"]
+        drags = [st["symbol"] for st in sec_stocks if st["flag"] == "DRAG"]
 
-    db.user_watchlists.update_one(
-        {"_id": oid, "user_id": user_id},
-        {"$addToSet": {"symbols": sym}}
-    )
+        if breakouts:
+            commentary = f"Active breakout detected in {', '.join(breakouts)}. Volume supporting move."
+        elif drags:
+            commentary = f"Downward drag active in {', '.join(drags)}. Sector undergoing distribution."
+        else:
+            commentary = f"Sector is rangebound. Prices fluctuating within normal bounds ({avg_delta:+.2f}%)."
 
-    multiplier = 2.5 if "Surge" in payload.volume_behavior else (0.5 if "Drying" in payload.volume_behavior else 1.0)
-    db.global_telemetry_cache.update_one(
-        {"symbol": sym},
-        {
-            "$set": {
-                "symbol": sym,
-                "name": payload.name,
-                "sector": payload.sector,
-                "ltp": ltp,
-                "day_high": round(ltp * 1.015, 2),
-                "day_low": round(ltp * 0.985, 2),
-                "volume": int(1_000_000 * multiplier),
-                "avg_volume_20d": 1_000_000,
-                "close_price": anchor_price
-            }
+        sector_clusters.append({
+            "sector": sec_name,
+            "avg_delta": round(avg_delta, 2),
+            "commentary": commentary,
+            "stocks": sec_stocks
+        })
+
+    has_undo = bool(wl.get("undo_snapshots"))
+
+    return {
+        "id": str(wl["_id"]),
+        "name": wl["name"],
+        "telemetry": {
+            "portfolio_absence_drift": round(total_portfolio_drift, 2),
+            "held_count": held_count,
+            "leader_symbol": leader["symbol"] if leader else "—",
+            "leader_pct": leader["delta_pct"] if leader else 0.0,
+            "leader_sector": leader["sector"] if leader else "—",
+            "breakout_count": breakout_count,
+            "fading_count": fading_count,
+            "drag_count": drag_count,
+            "sector_count": len(sectors),
+            "stock_count": len(stocks_out),
+            "has_undo": has_undo
         },
-        upsert=True
+        "sectors": sector_clusters
+    }
+
+@app.post("/api/watchlists/{watchlist_id}/mark-seen")
+def mark_seen(watchlist_id: str):
+    wl = db.watchlists.find_one({"_id": ObjectId(watchlist_id)})
+    if not wl:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+
+    # 1. Save existing baselines for Undo support
+    current_snapshots = wl.get("snapshots", {})
+    db.watchlists.update_one(
+        {"_id": ObjectId(watchlist_id)},
+        {"$set": {"undo_snapshots": current_snapshots}}
     )
 
-    db.user_view_snapshots.update_one(
-        {"user_id": user_id},
-        {"$set": {f"prices.{sym}": anchor_price}},
-        upsert=True
+    # 2. Re-anchor: lock seen_price = live price for each symbol
+    new_snapshots = {}
+    for s in wl.get("stocks", []):
+        sym = s["symbol"]
+        current_ltp = get_live_price(sym)
+        new_snapshots[sym] = {
+            "seen_price": current_ltp,
+            "seen_at": datetime.utcnow().isoformat()
+        }
+
+    db.watchlists.update_one(
+        {"_id": ObjectId(watchlist_id)},
+        {"$set": {"snapshots": new_snapshots}}
     )
 
-    if payload.is_held and payload.quantity > 0:
-        db.user_holdings.update_one(
-            {"user_id": user_id, "symbol": sym},
-            {"$set": {"user_id": user_id, "symbol": sym, "quantity": payload.quantity, "avg_buy_price": anchor_price}},
-            upsert=True
-        )
+    return {"status": "success", "snapshots": new_snapshots}
 
-    DASHBOARD_CACHE.clear()
-    return {"status": "success", "symbol": sym}
+@app.post("/api/watchlists/{watchlist_id}/undo-seen")
+def undo_seen(watchlist_id: str):
+    wl = db.watchlists.find_one({"_id": ObjectId(watchlist_id)})
+    if not wl:
+        raise HTTPException(status_code=404, detail="Watchlist not found")
+
+    undo_snapshots = wl.get("undo_snapshots", {})
+    if not undo_snapshots:
+        raise HTTPException(status_code=400, detail="No previous baseline to restore")
+
+    # Restore baseline and clear undo buffer
+    db.watchlists.update_one(
+        {"_id": ObjectId(watchlist_id)},
+        {"$set": {"snapshots": undo_snapshots, "undo_snapshots": {}}}
+    )
+
+    return {"status": "success", "restored": undo_snapshots}
+
+@app.post("/api/watchlists/{watchlist_id}/stocks")
+def add_stock(watchlist_id: str, req: AddStockRequest):
+    sym = req.symbol.upper().strip()
+    if sym not in STOCK_UNIVERSE:
+        STOCK_UNIVERSE[sym] = {"name": f"{sym} Corp", "sector": "GENERAL", "base_price": 500.00}
+
+    cur_price = get_live_price(sym)
+
+    stock_doc = {
+        "symbol": sym,
+        "held": req.held,
+        "shares": req.shares,
+        "volume_type": req.volume_type
+    }
+
+    # Baseline set with initial drift for breakout demonstration if requested
+    baseline = round(cur_price * 0.98, 2) if req.volume_type == "Surge Volume" else cur_price
+
+    db.watchlists.update_one(
+        {"_id": ObjectId(watchlist_id)},
+        {
+            "$push": {"stocks": stock_doc},
+            "$set": {f"snapshots.{sym}": {"seen_price": baseline, "seen_at": datetime.utcnow().isoformat()}}
+        }
+    )
+    return {"status": "success"}
 
 @app.delete("/api/watchlists/{watchlist_id}/stocks/{symbol}")
-def remove_stock_from_watchlist(watchlist_id: str, symbol: str, user_id: str = "demo_user"):
+def delete_stock(watchlist_id: str, symbol: str):
     sym = symbol.upper().strip()
-    try:
-        oid = ObjectId(watchlist_id)
-    except Exception:
-        raise HTTPException(status_code=400, detail="Invalid watchlist ID format")
-
-    db.user_watchlists.update_one(
-        {"_id": oid, "user_id": user_id},
-        {"$pull": {"symbols": sym}}
-    )
-    DASHBOARD_CACHE.clear()
-    return {"status": "success", "removed": sym}
-
-# ----------------- SNAPSHOT ACK & UNDO -----------------
-
-@app.post("/api/snapshot/ack")
-def mark_all_as_seen(user_id: str = "demo_user"):
-    DASHBOARD_CACHE.clear()
-    current_doc = db.user_view_snapshots.find_one({"user_id": user_id}) or {}
-    old_active_prices = current_doc.get("prices", {})
-
-    all_telemetry = list(db.global_telemetry_cache.find({}, {"_id": 0}))
-    new_prices = {doc["symbol"]: float(doc["ltp"]) for doc in all_telemetry if "ltp" in doc}
-
-    for wl in db.user_watchlists.find({"user_id": user_id}):
-        for sym in wl.get("symbols", []):
-            cached = db.global_telemetry_cache.find_one({"symbol": sym})
-            if cached and "ltp" in cached:
-                new_prices[sym] = float(cached["ltp"])
-
-    if not old_active_prices:
-        old_active_prices = {s: round(p * 0.985, 2) for s, p in new_prices.items()}
-
-    db.user_view_snapshots.update_one(
-        {"user_id": user_id},
-        {"$set": {"prices": new_prices, "previous_prices": old_active_prices}},
-        upsert=True
-    )
-    return {"status": "success", "can_undo": True}
-
-@app.post("/api/snapshot/undo")
-def undo_mark_seen(user_id: str = "demo_user"):
-    DASHBOARD_CACHE.clear()
-    current_doc = db.user_view_snapshots.find_one({"user_id": user_id}) or {}
-    prev_prices = current_doc.get("previous_prices", {})
-
-    if not prev_prices:
-        all_telemetry = list(db.global_telemetry_cache.find({}, {"_id": 0}))
-        prev_prices = {item["symbol"]: round(float(item.get("ltp", 100.0)) * 0.985, 2) for item in all_telemetry}
-
-    db.user_view_snapshots.update_one(
-        {"user_id": user_id},
-        {"$set": {"prices": prev_prices}, "$unset": {"previous_prices": ""}}
-    )
-    return {"status": "success", "can_undo": False}
-
-@app.get("/api/stocks/search")
-def search_stocks(query: str = ""):
-    q = query.strip()
-    if not q or len(q) < 2:
-        return []
-    try:
-        safe_q = re.escape(q)
-        query_filter = {
-            "$or": [
-                {"symbol": {"$regex": f"^{safe_q}", "$options": "i"}},
-                {"name": {"$regex": safe_q, "$options": "i"}}
-            ]
+    db.watchlists.update_one(
+        {"_id": ObjectId(watchlist_id)},
+        {
+            "$pull": {"stocks": {"symbol": sym}},
+            "$unset": {f"snapshots.{sym}": "", f"undo_snapshots.{sym}": ""}
         }
-        results = list(db.master_symbols.find(query_filter, {"_id": 0}).limit(8))
-        for item in results:
-            cached = db.global_telemetry_cache.find_one({"symbol": item["symbol"]}, {"_id": 0, "ltp": 1})
-            item["ltp"] = cached.get("ltp", 0.0) if cached else 0.0
-        return results
-    except Exception as e:
-        print(f"[Search API Error]: {e}")
-        return []
+    )
+    return {"status": "success"}
